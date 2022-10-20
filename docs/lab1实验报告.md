@@ -71,3 +71,12 @@ The target architecture is assumed to be i8086
 for循环开始`7d51:	               	cmp    %esi,%ebx`   
 
 结束`7d69:	               	jmp    7d51 <bootmain+0x3c>`
+
+
+> **练习四** 理解C语言中的指针。   
+> 阅读 *The C Programming Language* 中的 5.1（指针和地址）到 5.5（字符指针和函数）。然后下载 [pointers.c](https://pdos.csail.mit.edu/6.828/2018/labs/lab1/pointers.c) 的代码，运行它，并确保您了解所有打印值的来源。特别是，确保您了解打印的第 1 行和第 6 行中的指针地址来自哪里，打印的第 2 到第 4 行中的所有值是如何到达那里的，以及为什么第 5 行中打印的值看似损坏。    
+> 除非精通C语言，这个练习最好做一做。
+
+其中`3[c] = 302;`为访问数组c的第三个元素。    
+`b = (int *) a + 1;`指针b为地址a+4（因为是int类型的指针，int：4B）    
+`c = (int *) ((char *) a + 1);`指针c为地址a+1（因为加的时候是char类型指针，char：1B）
