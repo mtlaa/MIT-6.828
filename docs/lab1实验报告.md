@@ -56,3 +56,8 @@ The target architecture is assumed to be i8086
 0x0000d16b in ?? ()
 ```
 从地址`0xfe05b`开始执行了很多指令。`cmpl`和`jne`共同完成条件转移指令。
+
+
+
+for循环开始`7d51:	39 f3                	cmp    %esi,%ebx`
+结束`7d69:	eb e6                	jmp    7d51 <bootmain+0x3c>`
