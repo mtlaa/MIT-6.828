@@ -57,7 +57,17 @@ The target architecture is assumed to be i8086
 ```
 从地址`0xfe05b`开始执行了很多指令。`cmpl`和`jne`共同完成条件转移指令。
 
+> **练习三** 熟悉[GDB命令](https://pdos.csail.mit.edu/6.828/2018/labguide.html)。    
+> 在地址 0x7c00 处设置断点，该地址将加载引导扇区。继续执行直到该断点。跟踪 `boot/boot.S` 中的代码，使用源代码和反汇编文件 `obj/boot/boot.asm` 跟踪您所在的位置。还可以在 GDB 中使用 `x/i` 命令来反汇编引导加载程序中的指令序列，并将原始引导加载程序源代码与 `obj/boot/boot.asm` 和 GDB 中的反汇编进行比较。    
+> 跟踪到 `boot/main.c` 中的 `bootmain()`，然后跟踪到 `readsect()`。确定与 `readsect()` 中的每个语句相对应的确切汇编指令。跟踪 `readsect()` 的其余部分并返回 `bootmain()`，并确定从磁盘读取内核剩余扇区的 for 循环的开始和结束。找出循环结束时将运行的代码，在此处设置断点，然后继续执行该断点。然后逐步完成引导加载程序的其余部分。
 
+一些GDB命令：
+* `c`执行到下一个断点
+* `si N`执行接下来N条指令
+* `b *`设置断点
+* `info break`查看所有断点
+* `d`删除所有断点，可选加`N`删除指定断点
 
-for循环开始`7d51:	39 f3                	cmp    %esi,%ebx`
-结束`7d69:	eb e6                	jmp    7d51 <bootmain+0x3c>`
+for循环开始`7d51:	               	cmp    %esi,%ebx`   
+
+结束`7d69:	               	jmp    7d51 <bootmain+0x3c>`
