@@ -103,3 +103,54 @@ for循环开始`7d51:	               	cmp    %esi,%ebx`
 0x100010:       0x34000004      0x2000b812      0x220f0011      0xc0200fd8
 ```
 在引导加载程序执行过程中，把磁盘中的**内核读入了内存**，所以内存里的内容改变了。
+
+
+> **练习七** 使用 QEMU 和 GDB 跟踪到 JOS 内核，并在 `movl %eax, %cr0`指令处停止。检查地址 `0x00100000` 和 `0xf0100000` 处的内存(使用`x/Nx ADDR`)。然后使用 `stepi` GDB 命令单步执行该指令。再次检查 `0x00100000` 和 `0xf0100000` 处的内存。了解发生了什么。    
+> 如果建立的映射错误，第一条无法正常执行的指令是什么？可以注释掉 `kern/entry.S` 中的 `movl %eax, %cr0` ，调试找到答案。    
+> 
+> *注*：`cr0`是一个控制寄存器，例如最后一位（最低位）`PE`是CPU是实模式还是保护模式的标志(Protedted Enable)；第一位（最高位）`PG`是分页允许位(Paging Enable)。
+
+内核在指令`movl %eax, %cr0`执行之前：
+```bash
+=> 0x100025:    mov    %eax,%cr0
+0x00100025 in ?? ()
+(gdb) x/8x 0x100000
+0x100000:       0x1badb002      0x00000000      0xe4524ffe      0x7205c766
+0x100010:       0x34000004      0x2000b812      0x220f0011      0xc0200fd8
+(gdb) x/8x 0xf0100000
+0xf0100000 <_start+4026531828>: 0x00000000      0x00000000      0x00000000
+0x00000000
+0xf0100010 <entry+4>:   0x00000000      0x00000000      0x00000000      0x00000000   
+```
+物理内存中存放了加载的内核，虚拟内存为空（还没有设`CR0_PG`）
+
+执行之后：
+```bash
+(gdb) x/8x 0x100000
+0x100000:       0x1badb002      0x00000000      0xe4524ffe      0x7205c766
+0x100010:       0x34000004      0x2000b812      0x220f0011      0xc0200fd8
+(gdb) x/8x 0xf0100000
+0xf0100000 <_start+4026531828>: 0x1badb002      0x00000000      0xe4524ffe      0x7205c766
+0xf0100010 <entry+4>:   0x34000004      0x2000b812      0x220f0011      0xc0200fd8   
+```
+可以发现物理内存和虚拟内存中内容一样，它们建立了映射。
+
+注释掉`movl %eax, %cr0`后：
+```bash
+(gdb)
+=> 0x100025:    mov    $0xf010002c,%eax
+0x00100025 in ?? ()
+(gdb)
+=> 0x10002a:    jmp    *%eax
+0x0010002a in ?? ()
+(gdb)
+=> 0xf010002c <relocated>:      add    %al,(%eax)
+relocated () at kern/entry.S:74
+74              movl    $0x0,%ebp                       # nuke frame pointer
+(gdb)
+Remote connection closed
+```
+```bash
+GNUmakefile:165: recipe for target 'qemu-gdb' failed
+```
+第一条无法正常运行的指令`jmp    *%eax`，这条指令的目的是跳转到虚拟内存空间。`add    %al,(%eax)`是发生错误产生的指令。
