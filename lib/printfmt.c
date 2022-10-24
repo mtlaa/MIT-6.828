@@ -32,6 +32,8 @@ static const char * const error_string[MAXERROR] =
  * Print a number (base <= 16) in reverse order,
  * using specified putch function and associated pointer putdat.
  */
+
+// base是要打印数字的进制数，width控制填充，padc为填充字符？
 static void
 printnum(void (*putch)(int, void*), void *putdat,
 	 unsigned long long num, unsigned base, int width, int padc)
@@ -75,6 +77,7 @@ getint(va_list *ap, int lflag)
 		return va_arg(*ap, int);
 }
 
+// 如果一个变量用register来修饰，则意味着该变量会作为一个寄存器变量
 
 // Main function to format and print a string.
 void printfmt(void (*putch)(int, void*), void *putdat, const char *fmt, ...);
@@ -89,9 +92,12 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 	char padc;
 
 	while (1) {
+		// 输出无 % 的子序列
 		while ((ch = *(unsigned char *) fmt++) != '%') {
+			// 遍历完序列
 			if (ch == '\0')
 				return;
+			// 输出一个字符
 			putch(ch, putdat);
 		}
 

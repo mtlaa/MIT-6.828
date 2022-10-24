@@ -154,3 +154,32 @@ Remote connection closed
 GNUmakefile:165: recipe for target 'qemu-gdb' failed
 ```
 第一条无法正常运行的指令`jmp    *%eax`，这条指令的目的是跳转到虚拟内存空间。`add    %al,(%eax)`是发生错误产生的指令。
+
+> **练习八** 我们省略了一段使用`%o`形式的打印八进制数字所必需的代码。找到并填写此代码片段。
+
+要补充的代码在`lib/printfmt.c`中：
+```c
+// (unsigned) octal
+case 'o':
+    // Replace this with your code.
+    putch('X', putdat);
+    putch('X', putdat);
+    putch('X', putdat);
+    break;
+```
+参照上面的无符号十进制：
+```c
+// unsigned decimal
+case 'u':
+    num = getuint(&ap, lflag);
+    base = 10;
+    goto number;
+```
+
+**我们要写的代码为：**
+```c
+case 'o':
+    num = getuint(&ap, lflag);
+    base = 8;
+    goto number;
+```
