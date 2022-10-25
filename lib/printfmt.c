@@ -89,10 +89,10 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 	register int ch, err;
 	unsigned long long num;
 	int base, lflag, width, precision, altflag;
-	char padc;
+	char padc;// 填充字符
 
 	while (1) {
-		// 输出无 % 的子序列
+		// 输出非 %- 的序列 
 		while ((ch = *(unsigned char *) fmt++) != '%') {
 			// 遍历完序列
 			if (ch == '\0')
