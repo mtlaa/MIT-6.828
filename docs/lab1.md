@@ -319,7 +319,8 @@ ELF头部中还包含一个重要的字段`e_entry`，该字段保存程序入�
   ->cons_putc('1')->cons_putc(',')->cons_putc(' ')
   ->cons_putc('y')->cons_putc(' ')->
   va_arg(*ap,int)  // 调用前 x,调用后 y
-  ->cons_putc('3')->cons_putc(',')->cons_putc(' ') ->cons_putc('z')->cons_putc(' ')->
+  ->cons_putc('3')->cons_putc(',')->cons_putc(' ')
+  ->cons_putc('z')->cons_putc(' ')->
   va_arg(*ap,int)  // 调用前 y,调用后 z
   ->cons_putc('4')  
   ```
