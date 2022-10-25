@@ -276,16 +276,25 @@ ELF头部中还包含一个重要的字段`e_entry`，该字段保存程序入�
 
 回答下列问题：
 1. 解释`printf.c`和`console.c`之间的接口。具体来说，`console.c` 导出什么函数？ `printf.c` 是如何使用这个函数的？
+   > `console.c`调用`printf.c`的`cprintf`函数。`printf.c`调用`console.c`的`cputchar`函数，封装为`putch`函数，用于向控制台输出一个字符。
 2. 解释如下来自`console.c`中的代码：
 ```c
-1      if (crt_pos >= CRT_SIZE) {
+// crt_pos是要显示的字符数+屏幕上已经显示的字符数
+// CRT_SIZE=CRT_ROWS(行数)*CRT_COLS(列数),为显示器可显示的字符总数
+// crt_buf代表当前显示的内容，是一个长度为CRT_SIZE的一维数组
+1      if (crt_pos >= CRT_SIZE) {  // 如果屏幕显示不下，需要清除一行（更准确的说是清除CRT_COLS个字符，固定这么多个）
 2              int i;
+               // memmove(目的，源，长度)用于字节拷贝，把 2~n行 拷贝到 1~n-1行，即把第一行覆盖掉，第n行不变
 3              memmove(crt_buf, crt_buf + CRT_COLS, (CRT_SIZE - CRT_COLS) * sizeof(uint16_t));
+               // 这个for循环负责清除最后CRT_COLS个字符（可能是最后一整行），即用空格填充
 4              for (i = CRT_SIZE - CRT_COLS; i < CRT_SIZE; i++)
-5                      crt_buf[i] = 0x0700 | ' ';
+5                      crt_buf[i] = 0x0700 | ' '; // 为什么要用’或运算‘？
+               // 使crt_pos回到可以显示的起始点
 6              crt_pos -= CRT_COLS;
 7      }
 ```
+> 见注释
+
 3. 对于以下问题，您可能需要查阅Lecture 2的[notes](https://pdos.csail.mit.edu/6.828/2018/lec/l-x86.html)。这些notes涵盖了 GCC 在 x86 上的调用规定。
 逐步跟踪以下代码的执行：    
 ```c
@@ -294,8 +303,9 @@ ELF头部中还包含一个重要的字段`e_entry`，该字段保存程序入�
 ```
 * 在对 `cprintf()` 的调用中，`fmt` 指向什么？`ap`指向什么？
 * 列出（按执行顺序）对 `cons_putc`、`va_arg` 和 `vcprintf` 的每个调用。对于 `cons_putc`，也要列出它的参数。对于 `va_arg`，列出调用前后 `ap` 指向的内容。对于 `vcprintf` 列出它的两个参数的值。
+  > 这是该函数的声明`int cprintf(const char *fmt, ...);`,`fmt`指向要打印的内容；`ap`
 
-4. 运行一下代码：
+4. 运行以下代码：
 ```c
     unsigned int i = 0x00646c72;
     cprintf("H%x Wo%s", 57616, &i);
