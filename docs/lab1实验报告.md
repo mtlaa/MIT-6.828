@@ -64,7 +64,8 @@ The target architecture is assumed to be i8086
 一些GDB命令：
 * `c`执行到下一个断点
 * `si N`执行接下来N条指令
-* `b *`设置断点
+* `b *地址`设置断点
+* `b 函数名`在函数处设置断点
 * `info break`查看所有断点
 * `d`删除所有断点，可选加`N`删除指定断点
 
