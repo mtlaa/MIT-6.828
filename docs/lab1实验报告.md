@@ -184,3 +184,124 @@ case 'o':
     base = 8;
     goto number;
 ```
+回答下列问题：
+1. 解释`printf.c`和`console.c`之间的接口。具体来说，`console.c` 导出什么函数？ `printf.c` 是如何使用这个函数的？
+   > `console.c`调用`printf.c`的`cprintf`函数。`printf.c`调用`console.c`的`cputchar`函数，封装为`putch`函数，用于向控制台输出一个字符。
+2. 解释如下来自`console.c`中的代码：
+```c
+// crt_pos是要显示的字符数+屏幕上已经显示的字符数
+// CRT_SIZE=CRT_ROWS(行数)*CRT_COLS(列数),为显示器可显示的字符总数
+// crt_buf代表当前显示的内容，是一个长度为CRT_SIZE的一维数组
+1      if (crt_pos >= CRT_SIZE) {  // 如果屏幕显示不下，需要清除一行（更准确的说是清除CRT_COLS个字符，固定这么多个）
+2              int i;
+               // memmove(目的，源，长度)用于字节拷贝，把 2~n行 拷贝到 1~n-1行，即把第一行覆盖掉，第n行不变
+3              memmove(crt_buf, crt_buf + CRT_COLS, (CRT_SIZE - CRT_COLS) * sizeof(uint16_t));
+               // 这个for循环负责清除最后CRT_COLS个字符（可能是最后一整行），即用空格填充
+4              for (i = CRT_SIZE - CRT_COLS; i < CRT_SIZE; i++)
+5                      crt_buf[i] = 0x0700 | ' '; // 为什么要用’或运算‘？
+               // 使crt_pos回到可以显示的起始点
+6              crt_pos -= CRT_COLS;
+7      }
+```
+> 见注释
+
+3. 对于以下问题，您可能需要查阅Lecture 2的[notes](https://pdos.csail.mit.edu/6.828/2018/lec/l-x86.html)。这些notes涵盖了 GCC 在 x86 上的调用规定。
+逐步跟踪以下代码的执行：    
+```c
+    int x = 1, y = 3, z = 4;
+    cprintf("x %d, y %x, z %d\n", x, y, z);
+```
+* 在对 `cprintf()` 的调用中，`fmt` 指向什么？`ap`指向什么？
+* 列出（按执行顺序）对 `cons_putc`、`va_arg` 和 `vcprintf` 的每个调用。对于 `cons_putc`，也要列出它的参数。对于 `va_arg`，列出调用前后 `ap` 指向的内容。对于 `vcprintf` 列出它的两个参数的值。
+* *注* VA_LIST的用法：   
+（1）首先在函数里定义一个VA_LIST型的变量，这个变量是指向参数的指针。   
+（2）va_start(args, fmt)：将args指向第一个参数fmt。   
+（3）va_arg(args, 参数类型)：args指向下一个参数。VA_ARG的第二个参数是你要返回的参数的类型（如果函数有多个可变参数的，依次调用VA_ARG获取各个参数）。  
+（4）va_end(args)：将args置为无效。
+
+  > 这是该函数的声明`int cprintf(const char *fmt, ...);`,`fmt`指向要打印的内容，即`"x %d, y %x, z %d\n"`；`ap`是一个`va_list`变量，指向可变参数列表的一个参数。调用过程如下：   
+  ```c
+  cprintf("x %d, y %x, z %d\n", x, y, z)
+  vcprintf("x %d, y %x, z %d\n",ap)  // ap指向参数fmt,即"x %d, y %x, z %d\n"
+  vprintfmt()->
+  cons_putc('x')->cons_putc(' ')->
+  va_arg(*ap,int)  // 调用前fmt,调用后 x
+  ->cons_putc('1')->cons_putc(',')->cons_putc(' ')
+  ->cons_putc('y')->cons_putc(' ')->
+  va_arg(*ap,int)  // 调用前 x,调用后 y
+  ->cons_putc('3')->cons_putc(',')->cons_putc(' ')
+  ->cons_putc('z')->cons_putc(' ')->
+  va_arg(*ap,int)  // 调用前 y,调用后 z
+  ->cons_putc('4')  
+  ```
+  
+
+4. 运行以下代码：
+```c
+    unsigned int i = 0x00646c72;
+    cprintf("H%x Wo%s", 57616, &i);
+```
+输出是什么？按照上一个问题的方式解释如何得出这个输出。需要参照将字节映射到字符的 ASCII 表。
+
+这样的输出取决于 x86 是 `little-endian`（小端存储）。如果 x86 是 `big-endian`（大端存储），您会把 `i` 设置成什么以产生相同的输出？您是否需要将 `57616` 更改为其他值？
+
+*注*：小端存储就是把低位字节(右边的)排放在内存的低地址端，高位字节(左边的)排放在内存的高地址端。
+对于`0x00646c72`，如果是小端，地址从左到右是升高，那内存中内容为`72 6c 64 00`,如果是大端，则为`00 64 6c 72`。
+> 输出为`He110 World`。`%x`是十六进制输出，`57616`的十六进制数为`0xe110`，`%s`为字符串输出，`i = 0x00646c72`为小端存储`72 6c 64 00`,对照ASCII码为`r l d \0`.   
+> 若为大端存储，`57616`不需要改，因为它的十六进制数没变。需要把`i`设为`0x726c6400`.
+
+5. 下述代码中，`y=`之后会打印什么？ （注意：答案不是特定值。）为什么会发生这种情况？
+```c
+    cprintf("x=%d y=%d", 3);
+```
+> 输出为`x=3 y=-267321364`，因为没有指定第三个参数，`va_arg`获取到的下一个参数是错误的。
+
+6. 假设 GCC 更改了它的调用约定，使它按声明顺序将参数推送到堆栈上，即最后一个参数被最后推送。您将如何更改 `cprintf` 或其接口，以便仍然可以向它传递**可变数量**的参数？
+> 改成`cprintf(..., const char* fmt);`，不知是否正确。
+
+
+> **练习九** 确定内核在哪里初始化它的堆栈，以及它的堆栈在内存中的确切位置。内核如何保留它的栈空间？堆栈指针初始化为指向该保留区域的哪个“末端”（即高地址端还是低地址端）？
+
+```
+f010002f:	bd 00 00 00 00     mov    $0x0,%ebp
+f0100034:	bc 00 00 11 f0     mov    $0xf0110000,%esp
+```
+这两条指令初始化内核的堆栈，堆栈的栈底在`0xf0110000`，初始时栈顶`esp`也在`0xf0110000`。
+
+在`kern/entry.S`中：
+```
+bootstack:
+	.space		KSTKSIZE
+```
+在`inc/memlayout.h`中：
+```cpp
+// Kernel stack.
+#define KSTACKTOP	KERNBASE
+#define KSTKSIZE	(8*PGSIZE)   		// size of a kernel stack
+#define KSTKGAP		(8*PGSIZE)   		// size of a kernel stack guard
+```
+在`inc/mmu.h`中：
+```cpp
+#define PGSIZE		4096		// bytes mapped by a page
+```
+所以内核的栈空间大小为32KB，即堆栈的确切位置为`0xf0108000 ~ 0xf0110000`。堆栈指针初始化为`0xf0110000`即高地址端。
+
+
+> **练习十** 要熟悉 x86 上的 C 调用约定，请在 `obj/kern/kernel.asm` 中找到 `test_backtrace` 函数的地址，在此处设置断点，并检查内核启动后每次调用它时会发生什么。 `test_backtrace` 的每个递归嵌套级别将多少个 32 位字推入堆栈，这些字是什么？
+
+调试结果如下：
+```bash
+(gdb) x/52x $esp
+0xf010ff2c:     0xf01000a1      0x00000000      0x00000001      0xf010ff68
+0xf010ff3c:     0xf010004a      0xf0111308      0x00000002      0xf010ff68
+0xf010ff4c:     0xf01000a1      0x00000001      0x00000002      0xf010ff88
+0xf010ff5c:     0xf010004a      0xf0111308      0x00000003      0xf010ff88
+0xf010ff6c:     0xf01000a1      0x00000002      0x00000003      0xf010ffa8
+0xf010ff7c:     0xf010004a      0xf0111308      0x00000004      0xf010ffa8
+0xf010ff8c:     0xf01000a1      0x00000003      0x00000004      0x00000000
+0xf010ff9c:     0xf010004a      0xf0111308      0x00000005      0xf010ffc8
+0xf010ffac:     0xf01000a1      0x00000004      0x00000005      0x00000000
+0xf010ffbc:     0xf010004a      0xf0111308      0x00010094      0xf010fff8
+0xf010ffcc:     0xf0100124      0x00000005      0x00000003      0xf010ffec
+```
+每个递归嵌套级别会将8个32位字压入堆栈。从最后一行`0x00000005`开始往前看，5是参数，`0xf0100124`是`test_backtrace`在函数`i386_init`中的返回地址，`0xf010004a`是`call   f01001ec <__x86.get_pc_thunk.bx>`的返回地址，`0xf01000a1`是`test_backtrace`函数递归调用的返回地址。
