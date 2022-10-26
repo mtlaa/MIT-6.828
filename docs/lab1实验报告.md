@@ -305,3 +305,56 @@ bootstack:
 0xf010ffcc:     0xf0100124      0x00000005      0x00000003      0xf010ffec
 ```
 每个递归嵌套级别会将8个32位字压入堆栈。从最后一行`0x00000005`开始往前看，5是参数，`0xf0100124`是`test_backtrace`在函数`i386_init`中的返回地址，`0xf010004a`是`call   f01001ec <__x86.get_pc_thunk.bx>`的返回地址，`0xf01000a1`是`test_backtrace`函数递归调用的返回地址。
+
+> **练习十一** 实现上面指定的回溯功能。使用与示例中相同的格式，否则评分脚本会混淆。当你认为你的代码工作正常时，运行 `make grade` 以查看它的输出是否符合我们的评分脚本所期望的，如果不符合则修复它。    
+> 如果使用 `read_ebp()`，请注意 GCC 可能会在 `mon_backtrace()` 的函数序言之前生成调用 `read_ebp()` 的“优化”代码，这会导致堆栈跟踪不完整（最近一次函数调用的堆栈帧丢失）。虽然我们已尝试禁用导致此重新排序的优化，但您可能需要检查 `mon_backtrace()` 的程序集并确保对 `read_ebp()` 的调用发生在函数序言之后。
+
+做这个练习需要特别注意C函数调用做了哪些事，参考某大佬的[博客](https://www.cnblogs.com/gatsby123/p/9759153.html)，如下：
+1. 执行call指令前，函数调用者将参数入栈，按照函数列表从右到左的顺序入栈
+2. call指令会自动将当前eip入栈，ret指令将自动从栈中弹出该值到eip寄存器
+3. 被调用函数负责：将ebp入栈，esp的值赋给ebp。所以反汇编一个函数会发现开头两个指令都是push %ebp, mov %esp,%ebp。
+   
+例如对于`mon_backtrace(0,0,0)`的调用：
+```
+高地址 +------------------+  <- esp + 5
+      |    0x00000000    |
+      +------------------+  <- esp + 4
+      |    0x00000000    |
+      +------------------+  <- esp + 3
+      |    0x00000000    |
+      +------------------+  <- esp + 2
+      |       eip        |
+      +------------------+  <- esp + 1
+      |       ebp        |     <- 这个ebp是上个函数的！！！
+低地址 +------------------+  <- esp (mon_backtrace 的 ebp)
+```
+代码如下：
+```c
+int
+mon_backtrace(int argc, char **argv, struct Trapframe *tf)
+{
+	// Your code here.
+	cprintf("Stack backtrace:\n");
+	uint32_t *this_ebp = (uint32_t*)read_ebp();
+	while(this_ebp!=0){     // 停止回溯的条件
+		uint32_t pre_ebp = *this_ebp;
+		cprintf("  ebp %08x  eip %08x  args", this_ebp, *(this_ebp+1));
+		for (int i = 0; i < 5;++i){
+			cprintf(" %08x", *(this_ebp + 2 + i));
+		}
+		cprintf("\n");
+		this_ebp = (uint32_t*)pre_ebp;
+	}
+	return 0;
+}
+```
+关于循环的条件，可以在`obj/kern/kernel.asm`反汇编文件中找到
+```S
+	movl	$0x0,%ebp			# nuke frame pointer
+f010002f:	bd 00 00 00 00       	mov    $0x0,%ebp
+
+	# Set the stack pointer
+	movl	$(bootstacktop),%esp
+f0100034:	bc 00 00 11 f0       	mov    $0xf0110000,%esp
+```
+在内核初始化堆栈的时候把0赋给了`ebp`，然后执行第一个函数`i386_init()`时函数序言把`ebp`也就是0入栈。
