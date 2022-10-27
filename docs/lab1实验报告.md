@@ -358,3 +358,86 @@ f010002f:	bd 00 00 00 00       	mov    $0x0,%ebp
 f0100034:	bc 00 00 11 f0       	mov    $0xf0110000,%esp
 ```
 在内核初始化堆栈的时候把0赋给了`ebp`，然后执行第一个函数`i386_init()`时函数序言把`ebp`也就是0入栈。
+
+
+> **练习十二** 修改堆栈回溯函数，为每个 `eip` 显示与该 `eip` 对应的**函数名称、源文件名和行号**。    
+> 在 `debuginfo_eip` 中，`__STAB_*` 来自哪里？这个问题的答案很长，为了帮助您找到答案，以下是您可能想做的一些事情：
+> * 在文件 `kern/kernel.ld` 中查找 `__STAB_*`
+> * 运行`objdump -h obj/kern/kernel`
+> * 运行`objdump -G obj/kern/kernel`
+> * 运行`gcc -pipe -nostdinc -O2 -fno-builtin -I. -MD -Wall -Wno-format -DJOS_KERNEL -gstabs -c -S kern/init.c`，并查看 `init.s`
+> * 查看引导加载程序是否将符号表加载到内存中作为加载内核二进制文件的一部分   
+>
+> 通过插入对 `stab_binsearch` 的调用来查找地址的行号，完成 `debuginfo_eip` 的实现。   
+> 向内核监视器(JOS kernel monitor)添加一个回溯命令，并扩展您的 `mon_backtrace` 实现以调用 `debuginfo_eip` 并为列表的每个调用打印对应的信息：
+> ```
+> K> backtrace
+> Stack backtrace:
+>  ebp f010ff78  eip f01008ae  args 00000001 f010ff8c 00000000 f0110580 00000000
+>         kern/monitor.c:143: monitor+106
+>  ebp f010ffd8  eip f0100193  args 00000000 00001aac 00000660 00000000 00000000
+>         kern/init.c:49: i386_init+59
+>  ebp f010fff8  eip f010003d  args 00000000 00000000 0000ffff 10cf9a00 0000ffff
+>         kern/entry.S:70: <unknown>+0
+>  K> 
+> ```
+> 每行给出堆栈帧的 `eip` 的文件名和该文件中的行号，然后是函数的名称和 `eip` 从函数的第一条指令的偏移量（例如，`monitor+106` 表示返回的 `eip` 是从`monitor`开始的第106字节）。    
+> 请务必在单独的行上打印文件和函数名称，以避免混淆评分脚本。    
+> 您可能会发现回溯中缺少某些功能。例如，您可能会看到对  `monitor()` 的调用，而没有对 `runcmd()` 的调用。这是因为编译器内联了一些函数调用。其他优化可能会导致您看到意外的行号。如果您从 `GNUMakefile` 中删除 `-O2`，则回溯可能更有意义（但您的内核将运行得更慢）。
+
+要完成本实验需要弄明白`Eipdebuginfo`和`Stab`结构体内变量的含义，`Eipdebuginfo`有注释很容易弄懂，关键是`Stab`:
+```cpp
+struct Stab {
+	uint32_t n_strx;	// index into string table of name   符号索引
+	uint8_t n_type;         // 是符号类型，FUN指函数名，SLINE指在text段中的行号
+	uint8_t n_other;        // misc info (usually empty)
+	uint16_t n_desc;        // 表示在文件中的行号
+	uintptr_t n_value;	// 表示地址
+};
+```
+
+对`kern/kdebug.c`中`debuginfo_eip`函数的补充：
+```c
+	// Your code here.
+	stab_binsearch(stabs, &lline, &rline, N_SLINE, addr);
+	if(lline<=rline){
+		info->eip_line = stabs[lline].n_desc;
+	}else{
+		return -1;
+	}
+```
+```c
+int
+mon_backtrace(int argc, char **argv, struct Trapframe *tf)
+{
+	// Your code here.
+	cprintf("Stack backtrace:\n");
+	uint32_t *this_ebp = (uint32_t*)read_ebp();
+	while(this_ebp!=0){
+		uint32_t pre_ebp = *this_ebp;
+		uintptr_t eip = *(this_ebp + 1);
+		cprintf("  ebp %08x  eip %08x  args", this_ebp, eip);
+		for (int i = 0; i < 5;++i){
+			cprintf(" %08x", *(this_ebp + 2 + i));
+		}
+		cprintf("\n");
+		struct Eipdebuginfo info;
+		debuginfo_eip(eip, &info);
+		cprintf("        %s:%d: ", info.eip_file, info.eip_line);
+		// for (int i = 0; i < info.eip_fn_namelen;++i){
+		// 	cprintf("%c", info.eip_fn_name[i]);
+		// }
+		cprintf("%.*s+%d\n",info.eip_fn_namelen,info.eip_fn_name,eip-info.eip_fn_addr);
+		this_ebp = (uint32_t *)pre_ebp;
+	}
+	return 0;
+}
+```
+添加命令：
+```c
+static struct Command commands[] = {
+	{ "help", "Display this list of commands", mon_help },
+	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+	{"backtrace", "Display the stack backtrace list", mon_backtrace},
+};
+```
