@@ -393,6 +393,8 @@ struct Stab {
 	uint8_t n_other;        // misc info (usually empty)
 	uint16_t n_desc;        // 表示在文件中的行号
 	uintptr_t n_value;	// 表示地址
+	// 在这个实验中，如果n_type是FUN，那么n_value中的地址就是绝对地址，该函数的地址，就要根据这个地址找到对应的FUN
+	// 如果n_type是SLINE，那么n_value是相对地址（相对于所在函数地址的偏移量）
 };
 ```
 
