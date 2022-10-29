@@ -14,7 +14,7 @@ size_t npages;			// Amount of physical memory (in pages)
 static size_t npages_basemem;	// Amount of base memory (in pages)
 
 // These variables are set in mem_init()
-pde_t *kern_pgdir;		// Kernel's initial page directory
+pde_t *kern_pgdir;		// Kernel's initial page directory    第一个页目录表的虚拟地址
 struct PageInfo *pages;		// Physical page state array
 static struct PageInfo *page_free_list;	// Free list of physical pages
 
@@ -101,7 +101,20 @@ boot_alloc(uint32_t n)
 	// nextfree.  Make sure nextfree is kept aligned
 	// to a multiple of PGSIZE.
 	//
-	// LAB 2: Your code here.
+	// LAB 2: Your code here.********************************************************************
+
+	// 两步：1、分配一个足够大的页面  2、更新 nextfree ，要为4096的整数倍
+	// 并不需要真正的分配内存，就只是先占个坑
+	// 如果n>0，就返回分配空间的首地址
+	if(n>0){
+		result = nextfree;
+		nextfree = ROUNDUP(nextfree + n, PGSIZE);
+		return result;
+	}
+	// 如果n==0，就返回nextfree
+	if(n==0){
+		return nextfree;
+	}
 
 	return NULL;
 }
@@ -125,12 +138,12 @@ mem_init(void)
 	i386_detect_memory();
 
 	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
+	// panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
-	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
-	memset(kern_pgdir, 0, PGSIZE);
+	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);    // 初始占一整页
+	memset(kern_pgdir, 0, PGSIZE);   // 初始化为0
 
 	//////////////////////////////////////////////////////////////////////
 	// Recursively insert PD in itself as a page table, to form
@@ -147,8 +160,11 @@ mem_init(void)
 	// each physical page, there is a corresponding struct PageInfo in this
 	// array.  'npages' is the number of physical pages in memory.  Use memset
 	// to initialize all fields of each struct PageInfo to 0.
-	// Your code goes here:
+	// Your code goes here:*****************************************************************
 
+	// 分配一个有npages个struct PageInfo的数组，用 memset 把所有字段初始化为0
+	pages = (struct PageInfo *)boot_alloc(npages * sizeof(struct PageInfo));
+	memset(pages, 0, npages * sizeof(struct PageInfo));
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -231,6 +247,7 @@ mem_init(void)
 // allocator functions below to allocate and deallocate physical
 // memory via the page_free_list.
 //
+// 完成这个操作后，将只能使用page_alloc 和 page_free 函数分配释放页面，不能在使用boot_alloc
 void
 page_init(void)
 {
@@ -248,14 +265,25 @@ page_init(void)
 	//     in physical memory?  Which pages are already in use for
 	//     page tables and other data structures?
 	//
-	// Change the code to reflect this.
-	// NB: DO NOT actually touch the physical memory corresponding to
-	// free pages!
+	// Change the code to reflect this.***************************************************************
+	// NB: DO NOT actually touch the physical memory corresponding to free pages!
 	size_t i;
-	for (i = 0; i < npages; i++) {
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
+	// [IOPHYSMEM, EXTPHYSMEM) + [EXTPHYSMEM, truly_end) 都是已占用的地址，内核的开始物理地址为EXTPHYSMEM，
+	// truly_end前面包括boot_alloc分配的页目录和pages数组
+	physaddr_t truly_end = PADDR(boot_alloc(0));
+	for (i = 0; i < npages; i++)
+	{
+		if(i==0){
+			pages[i].pp_ref = 1;
+			pages[i].pp_link = NULL;
+		}else if(page2pa(pages+i)>=IOPHYSMEM&&page2pa(pages+i)<truly_end){
+			pages[i].pp_ref = 1;
+			pages[i].pp_link = NULL;
+		}else{
+			pages[i].pp_ref = 0;
+			pages[i].pp_link = page_free_list;
+			page_free_list = &pages[i];
+		}
 	}
 }
 

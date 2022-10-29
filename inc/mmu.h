@@ -26,8 +26,12 @@
 // To construct a linear address la from PDX(la), PTX(la), and PGOFF(la),
 // use PGADDR(PDX(la), PTX(la), PGOFF(la)).
 
+
+// 根据上面的地址结构可以得出：一页4096B，最多1024个页目录项，最多1024*1024个页表项，页号20位（最大为1048575）
+// 物理内存为：4GB
+
 // page number field of address
-#define PGNUM(la)	(((uintptr_t) (la)) >> PTXSHIFT)
+#define PGNUM(la)	(((uintptr_t) (la)) >> PTXSHIFT)   // 返回该地址的页号
 
 // page directory index
 #define PDX(la)		((((uintptr_t) (la)) >> PDXSHIFT) & 0x3FF)

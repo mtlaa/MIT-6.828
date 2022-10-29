@@ -11,8 +11,8 @@
 
 extern char bootstacktop[], bootstack[];
 
-extern struct PageInfo *pages;
-extern size_t npages;
+extern struct PageInfo *pages;    // 把 npages 个物理页面按页号连续排列
+extern size_t npages;    // 物理内存的总页数，一页4096B
 
 extern pde_t *kern_pgdir;
 
@@ -22,7 +22,11 @@ extern pde_t *kern_pgdir;
  * and returns the corresponding physical address.  It panics if you pass it a
  * non-kernel virtual address.
  */
-#define PADDR(kva) _paddr(__FILE__, __LINE__, kva)
+#define PADDR(kva) _paddr(__FILE__, __LINE__, kva)     
+// 这个宏把‘Remapped Physical Memory’段的虚拟地址转化为对应的物理地址
+
+// physaddr_t是用来表示地址的uint32_t
+
 
 static inline physaddr_t
 _paddr(const char *file, int line, void *kva)
@@ -35,6 +39,7 @@ _paddr(const char *file, int line, void *kva)
 /* This macro takes a physical address and returns the corresponding kernel
  * virtual address.  It panics if you pass an invalid physical address. */
 #define KADDR(pa) _kaddr(__FILE__, __LINE__, pa)
+// 这个宏把真实的物理地址转化为‘Remapped Physical Memory’段的虚拟地址，与 PADDR 相反
 
 static inline void*
 _kaddr(const char *file, int line, physaddr_t pa)
@@ -62,12 +67,14 @@ void	page_decref(struct PageInfo *pp);
 
 void	tlb_invalidate(pde_t *pgdir, void *va);
 
+// (pp - pages)为页号，(pp - pages) << PGSHIFT 为页号左移12位，也就是该页的物理地址
 static inline physaddr_t
 page2pa(struct PageInfo *pp)
 {
 	return (pp - pages) << PGSHIFT;
 }
 
+// pa为物理地址，PGNUM(pa)为该页的页号，函数功能与 page2pa 相反
 static inline struct PageInfo*
 pa2page(physaddr_t pa)
 {

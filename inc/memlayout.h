@@ -30,7 +30,7 @@
  *                     :              .               :
  *                     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~| RW/--
  *                     |                              | RW/--
- *                     |   Remapped Physical Memory   | RW/--
+ *                     |   Remapped Physical Memory   | RW/--       这个区域为256MB，物理内存映射到这里
  *                     |                              | RW/--
  *    KERNBASE, ---->  +------------------------------+ 0xf0000000      --+
  *    KSTACKTOP        |     CPU0's Kernel Stack      | RW/--  KSTKSIZE   |
@@ -89,11 +89,12 @@
 // At IOPHYSMEM (640K) there is a 384K hole for I/O.  From the kernel,
 // IOPHYSMEM can be addressed at KERNBASE + IOPHYSMEM.  The hole ends
 // at physical address EXTPHYSMEM.
+// 这里是 I/O hole 的起止地址
 #define IOPHYSMEM	0x0A0000
 #define EXTPHYSMEM	0x100000
 
 // Kernel stack.
-#define KSTACKTOP	KERNBASE
+#define KSTACKTOP	KERNBASE            
 #define KSTKSIZE	(8*PGSIZE)   		// size of a kernel stack
 #define KSTKGAP		(8*PGSIZE)   		// size of a kernel stack guard
 
@@ -128,7 +129,9 @@
 #define USTACKTOP	(UTOP - 2*PGSIZE)
 
 // Where user programs generally begin
-#define UTEXT		(2*PTSIZE)
+// 存放用户程序开始的地方，向高地址增长
+#define UTEXT		(2*PTSIZE)         
+
 
 // Used for temporary page mappings.  Typed 'void*' for convenience
 #define UTEMP		((void*) PTSIZE)
@@ -181,7 +184,8 @@ struct PageInfo {
 	// Pages allocated at boot time using pmap.c's
 	// boot_alloc do not have valid reference count fields.
 
-	uint16_t pp_ref;
+	// pp_ref是引用计数器，表示当前页面被几个进程使用，为0表示是空闲页面
+	uint16_t pp_ref; 
 };
 
 #endif /* !__ASSEMBLER__ */
