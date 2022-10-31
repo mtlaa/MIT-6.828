@@ -1575,7 +1575,7 @@ f0100ccd:	8b 06                	mov    (%esi),%eax
 f0100ccf:	89 83 94 1f 00 00    	mov    %eax,0x1f94(%ebx)
 		freePage->pp_link = NULL;
 f0100cd5:	c7 06 00 00 00 00    	movl   $0x0,(%esi)
-		if(alloc_flags&ALLOC_ZERO){
+		if(alloc_flags&ALLOC_ZERO){    // 只有这个条件满足时才把内存页面初始化为0
 f0100cdb:	f6 45 08 01          	testb  $0x1,0x8(%ebp)
 f0100cdf:	75 09                	jne    f0100cea <page_alloc+0x37>
 }

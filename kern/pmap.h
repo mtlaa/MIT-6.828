@@ -23,7 +23,7 @@ extern pde_t *kern_pgdir;
  * non-kernel virtual address.
  */
 #define PADDR(kva) _paddr(__FILE__, __LINE__, kva)     
-// 这个宏把‘Remapped Physical Memory’段的虚拟地址转化为对应的物理地址
+// 这个宏把‘Remapped Physical Memory’段的虚拟地址转化为对应的物理地址，原理见lab2 Part2 的虚拟、线性和物理地址最后两段
 
 // physaddr_t是用来表示地址的uint32_t
 
