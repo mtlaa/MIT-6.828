@@ -302,7 +302,18 @@ page_init(void)
 struct PageInfo *
 page_alloc(int alloc_flags)
 {
-	// Fill this function in
+	// Fill this function in ******************************************************
+	// 从page_free_list空闲列表中摘出一个空闲页的PageInfo，标记为使用（pp_link=NULL），memset初始化为0
+	// 注意，不要增加pp_ref引用计数，应该由上层调用者增加
+	if(page_free_list){
+		struct PageInfo *freePage = page_free_list;
+		page_free_list = freePage->pp_link;
+		freePage->pp_link = NULL;
+		if(alloc_flags&ALLOC_ZERO){    // 只有这个条件满足时才把内存页面初始化为0
+			memset(page2kva(freePage), 0, PGSIZE);
+		}
+		return freePage;
+	}
 	return 0;
 }
 
@@ -313,9 +324,15 @@ page_alloc(int alloc_flags)
 void
 page_free(struct PageInfo *pp)
 {
-	// Fill this function in
+	// Fill this function in ******************************************************
 	// Hint: You may want to panic if pp->pp_ref is nonzero or
 	// pp->pp_link is not NULL.
+	if(pp->pp_ref||pp->pp_link){
+		panic("Page is free, have not to free\n");
+	}
+	// 把页面的PageInfo接回page_free_list中
+	pp->pp_link = page_free_list;
+	page_free_list = pp;
 }
 
 //
