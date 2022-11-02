@@ -17,3 +17,5 @@
 /myapi.key
 /.suf
 /obj/.deps
+/__pycache__
+/.vscode

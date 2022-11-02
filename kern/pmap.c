@@ -459,25 +459,22 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)      // ！！！！！！------有错误------！！！！！！！！
 {
 	// Fill this function in *********************
-	pde_t *pde = pgdir + PDX(va);
-	pte_t *pte;
-	if (*pde & PTE_P )
-	{
-		pte = (pte_t *)KADDR(PTE_ADDR(*pde))+PTX(va);
-		if(*pte&PTE_P){
-			if(PTE_ADDR(*pte)==page2pa(pp)){
-				return 0;    // 如果在相同的pgdir中把相同的"pp"重新映射到相同的“va” 则什么也不做
-			}
-			page_remove(pgdir, va);
-		}
-	}
-	pte = pgdir_walk(pgdir, va, 1);
-	if(!pte)
+	pte_t *pte = pgdir_walk(pgdir, va, 1);
+	if (!pte)
 		return -E_NO_MEM;
+	pp->pp_ref++;   // 引用计数的增加必须在 page_remove 前面！！  this is an elegant way to handle
+	// 原因：在 Corner-case 条件下，即相同的 pp 重新映射到相同的 va 时
+	// 若pp的引用计数为 1 ，在page_remove中会把 pp 释放掉,即把页面 pp 接回了 page_free_list中
+	// 这样 should be no free memory "assert(!page_alloc(0));" 这条判断就为false
+	// assertion failed: !page_alloc(0)
 	pp->pp_link = NULL;
-	pp->pp_ref++;
+	if(*pte&PTE_P){
+		// 如果尝试用如下方式避免相同的重新分配，也会报错：kernel panic at kern/pmap.c:833: assertion failed: *pgdir_walk(kern_pgdir, (void*) PGSIZE, 0) & PTE_U
+		// if(PTE_ADDR(*pte)==page2pa(pp))
+		// 	return 0;    // 如果在相同的pgdir中把相同的"pp"重新映射到相同的“va” 则什么也不做
+		page_remove(pgdir, va);
+	}
 	*pte = page2pa(pp) | perm | PTE_P;
-	
 	return 0;
 }
 
