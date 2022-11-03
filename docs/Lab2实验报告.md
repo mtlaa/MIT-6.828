@@ -264,3 +264,108 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 	return NULL;
 }
 ```
+
+`page_remove()`:取消`va`与其物理页面的映射关系，把`va`对应的页表项清0
+```c
+void
+page_remove(pde_t *pgdir, void *va)
+{
+	// Fill this function in ****************************
+	pte_t *pte;
+	struct PageInfo *pp = page_lookup(pgdir, va, &pte);
+	if (!pp)
+		return;
+	page_decref(pp);
+	*pte = 0;
+	tlb_invalidate(pgdir, va);  // The TLB must be invalidated if you remove an entry from the page table.
+}
+```
+
+`page_insert()`:建立虚拟地址`va`与物理页`pp`的映射关系
+```c
+int
+page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
+{
+	// Fill this function in *********************
+	// 获取va对应的页表项地址，有三种情况：1、页表项已经存在，后面需要remove  2、分配了一个新的页表页，返回一个空的页表项
+	// 								3、内存不足，分配页表失败，此时pte==NULL
+	pte_t *pte = pgdir_walk(pgdir, va, 1);   
+	if (!pte)    // case 3
+		return -E_NO_MEM;
+	pp->pp_ref++;   // 引用计数的增加必须在 page_remove 前面！！  this is an elegant way to handle
+	// 原因：在 Corner-case 条件下，即相同的 pp 重新映射到相同的 va 时
+	// 若pp的引用计数为 1 ，在page_remove中会把 pp 释放掉,即把页面 pp 接回了 page_free_list中
+	// 这样 should be no free memory "assert(!page_alloc(0));" 这条判断就为false
+	// assertion failed: !page_alloc(0)
+	pp->pp_link = NULL;
+	if(*pte&PTE_P){    // case 1
+		// 如果尝试用如下方式避免相同的重新分配，也会报错：kernel panic at kern/pmap.c:833: assertion failed: *pgdir_walk(kern_pgdir, (void*) PGSIZE, 0) & PTE_U
+		// if(PTE_ADDR(*pte)==page2pa(pp))
+		// 	return 0;    // 如果在相同的pgdir中把相同的"pp"重新映射到相同的“va” 则什么也不做
+		page_remove(pgdir, va);
+	}
+	*pte = page2pa(pp) | perm | PTE_P;   // 建立映射
+	return 0;
+}
+```
+
+`make grade`结果：
+```
+running JOS: (1.3s) 
+  Physical page allocator: OK 
+  Page management: OK 
+
+Score: 40/70
+```
+
+# 练习5
+> **练习5** 在`mem_init()`中的` check_page()`调用后完成缺失的代码。     
+> 你的代码应该能通过 `check_kern_pgdir()` 和 `check_page_installed_pgdir()` 检查。
+
+```c
+	//////////////////////////////////////////////////////////////////////
+	// Now we set up virtual memory
+
+	//////////////////////////////////////////////////////////////////////
+	// Map 'pages' read-only by the user at linear address UPAGES
+	// Permissions:
+	//    - the new image at UPAGES -- kernel R, user R
+	//      (ie. perm = PTE_U | PTE_P)
+	//    - pages itself -- kernel RW, user NONE
+	// Your code goes here: *********************************
+	// PADDR(pages) 为pages数组的物理地址     
+	boot_map_region(kern_pgdir, UPAGES, npages * sizeof(struct PageInfo), PADDR(pages), PTE_U | PTE_P);
+	// 权限： ”PTE_U“说明用户可以读，”PTE_W“说明内核可以写， PTE_U | PTE_W 说明用户可以写 
+	// 只要 PTE_P 位有效，内核就可以读
+ 	//////////////////////////////////////////////////////////////////////
+	// Use the physical memory that 'bootstack' refers to as the kernel
+	// stack.  The kernel stack grows down from virtual address KSTACKTOP.
+	// We consider the entire range from [KSTACKTOP-PTSIZE, KSTACKTOP)
+	// to be the kernel stack, but break this into two pieces:
+	//     * [KSTACKTOP-KSTKSIZE, KSTACKTOP) -- backed by physical memory
+	//     * [KSTACKTOP-PTSIZE, KSTACKTOP-KSTKSIZE) -- not backed; so if
+	//       the kernel overflows its stack, it will fault rather than
+	//       overwrite memory.  Known as a "guard page".
+	//     Permissions: kernel RW, user NONE
+	// Your code goes here: ********************************
+	// bootstack是一个指针（虚拟地址），PADDR(bootstack)是其对应的物理地址
+	boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_W);
+	//////////////////////////////////////////////////////////////////////
+	// Map all of physical memory at KERNBASE.
+	// Ie.  the VA range [KERNBASE, 2^32) should map to
+	//      the PA range [0, 2^32 - KERNBASE)
+	// We might not have 2^32 - KERNBASE bytes of physical memory, but
+	// we just set up the mapping anyway.
+	// Permissions: kernel RW, user NONE
+	// Your code goes here: ************************************
+	boot_map_region(kern_pgdir, KERNBASE, 0x100000000 - KERNBASE, 0, PTE_W);
+```
+读懂英文注释应该就能写出来。
+```
+running JOS: (1.9s) 
+  Physical page allocator: OK 
+  Page management: OK 
+  Kernel page directory: OK 
+  Page management 2: OK 
+Score: 70/70
+```
