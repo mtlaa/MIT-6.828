@@ -171,3 +171,96 @@ make: *** [grade] Error 1
 | physaddr_t  |	Physical |
 
 `value`本身是一个指针，为虚拟地址，若`x`要保留这个含义，那么应该是`uintptr_t`类型。
+
+
+# 练习4
+
+页表项的格式     
+![](https://pdos.csail.mit.edu/6.828/2018/readings/i386/fig5-10.gif)
+
+> **练习4** 在文件 `kern/pmap.c` 中，您必须实现以下函数的代码。      
+> `pgdir_walk()`    
+> `boot_map_region()`    
+> `page_lookup()`     
+> `page_remove()`     
+> `page_insert()`     
+> 从 `mem_init()` 调用的 `check_page()` 测试您的页表管理例程。在继续 Part 3 之前，您应该确保它报告成功。
+
+`pgdir_walk()`:这个函数的任务是找到虚拟地址`va`对应的页表项的指针（虚拟地址）；若保存该页表项的页表还没有分配(*pde & PTE_P==0)，那么分配一个页作为页表，然后再返回`va`对应的页表项的指针
+```c
+pte_t *
+pgdir_walk(pde_t *pgdir, const void *va, int create)
+{
+	// Fill this function in ************************************
+	// pgdir 指向页目录（顶级页表），函数需要返回指向线性地址“va”的页表项（PTE）的指针。（需要查两级页表）
+	// 有可能二级页表页不存在，此时如果 create == false 则返回NULL，否则：
+	// 使用page_alloc分配一个页面，如果分配失败返回NULL，否则：
+	// 增加引用计数,更新页目录项，返回指向线性地址“va”的页表项（PTE）的指针。
+	// 注意:页表项和页目录项中存放的是物理地址
+	size_t pgdir_index = PDX(va);  // 页目录索引
+	size_t pgt_index = PTX(va);  // 页表索引
+	pde_t* pde = pgdir+pgdir_index;   // 页目录项指针
+	pte_t *pte;   // 页表页的指针
+	if (!*pde & PTE_P)
+	{
+	    // 二级页表不存在,需要分配一页创建一个页表
+		if(!create)
+			return NULL;
+		struct PageInfo *new_page = page_alloc(1);
+		if(!new_page)
+			return NULL;
+		new_page->pp_ref++;
+		*pde = page2pa(new_page) | PTE_P | PTE_W | PTE_U;   // 更新页目录项,为什么要设置 PTE_W  PTE_U 这两位?
+		// PTE_W 可写位  PTE_U 用户
+	}
+	// 二级页表存在 和 分配新页表 后的共同操作
+	pte = (pte_t *)KADDR(PTE_ADDR(*pde));
+	return pte + pgt_index;    // 返回页表项的指针
+}
+```
+关于更新页目录项,为什么要设置 PTE_W  PTE_U 这两位?
+> 设置权限，由于一级页表和二级页表都有权限控制，所以一般的做法是，放宽一级页表的权限，主要由二级页表来控制权限，所以对页目录项（由一级页表访问二级页表）的权限直接`| PTE_P | PTE_W | PTE_U`设置以放宽权限；对页表项（由二级页表项访问内存）的权限使用`| perm | PTE_P`来设置，达到最终控制访存的目的，`perm`的使用在后面的函数可以看到。
+
+
+
+`boot_map_region()`:这个函数的任务就是要 修改`va`对应的页表项使其指向物理地址`pa`对应的物理页面，建立映射
+```c
+static void
+boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
+{
+	// 将虚拟地址空间的[va, va+size)映射到以pgdir为根的页表中的物理地址[pa, pa+size)。 
+	// 上述过程：就是要修改va对应的页表项，使其指向pa
+	// size是PGSIZE的倍数，va和pa都是页对齐的。
+	// 使用pgdir_walk函数
+	// Fill this function in *********************************
+	for (size_t i = 0; i < size/PGSIZE;++i){
+		pte_t *pte = pgdir_walk(pgdir, (void*)va, 1);
+		if(!pte)
+			panic("boot_map_region(): out of memory\n");
+		va = va + PGSIZE;
+		// "Use permission bits perm|PTE_P for the entries." 这句话说明
+		// 使用 pa | perm | PTE_P 设置页表项的比特位
+		*pte = pa | perm | PTE_P;  // 要修改va对应的页表项，使其指向pa
+		pa += PGSIZE;
+	}
+}
+```
+
+`page_lookup()`:这个函数的功能就是查询虚拟地址`va`对应的物理页面的`PageInfo`
+```c
+// 返回映射在虚拟地址'va'的页面。如果pte_store不是0，那么我们就在其中存储这个页面的pte地址。 
+// 这是由page_remove使用的，可以用来验证syscall参数的页面权限，但不应被大多数调用者使用。
+struct PageInfo *
+page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
+{
+	// Fill this function in ***********************************
+	pte_t *pte = pgdir_walk(pgdir, va, 0);   // 只返回va对应的页表项，不分配新的页表页
+	if(pte_store){
+		*pte_store = pte;
+	}
+	if(pte){
+		return pa2page(PTE_ADDR(*pte));
+	}
+	return NULL;
+}
+```

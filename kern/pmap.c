@@ -391,11 +391,10 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 			return NULL;
 		new_page->pp_ref++;
 		*pde = page2pa(new_page) | PTE_P | PTE_W | PTE_U;   // 更新页目录项,为什么要设置 PTE_W  PTE_U 这两位?
-		pte = (pte_t *)page2kva(new_page);
-	}else{
-		pte = (pte_t *)KADDR(PTE_ADDR(*pde));
+		// PTE_W 可写位  PTE_U 用户
 	}
 	// 二级页表存在 和 分配新页表 后的共同操作
+	pte = (pte_t *)KADDR(PTE_ADDR(*pde));
 	return pte + pgt_index;    // 返回页表项的指针
 }
 
