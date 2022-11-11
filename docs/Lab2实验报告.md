@@ -369,3 +369,55 @@ running JOS: (1.9s)
   Page management 2: OK 
 Score: 70/70
 ```
+
+# 问题2
+> **问题2** 此时页目录中的哪些条目（行）已被填写？他们映射哪些地址以及指向哪里？也就是说，尽可能多地填写这张表：    
+> |Entry|Base Virtual Address|Points to (logically):|
+> |---|---|---|
+> |1023|?|Page table for top 4MB of phys memory|
+> |1022|?|?|
+> |·|?|?|
+> |·|?|?|
+> |2|0x00800000|?|
+> |1|0x00400000|?|
+> |0|0x00000000|[see next question]|
+
+|Entry|Base Virtual Address|Points to (logically):|
+|---|---|---|
+|1023|0xffc00000|Page table for top 4MB of phys memory|
+|1022|0xff800000|Page table for [248,252)MB of phys memory|
+|·|?|?|
+|961|0xf0400000|Page table for [4,8)MB of physical memory|
+|960|0xf0000000|Page table for [0,4)MB of physical memory|
+|959|0xefc00000|kernel stack|
+|·|?|?|
+|957|0xef400000(UVPT)|kern_pgdir内核页目录|
+|956|0xef000000(UPAGES)|pages数组|
+|·|?|?|
+|2|0x00800000|?|
+|1|0x00400000|?|
+|0|0x00000000|[see next question]|
+
+`UVPT`的映射在`men_init()`中定义：
+```c
+// Permissions: kernel R, user R
+kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
+```
+
+# 问题3
+> **问题3** 我们将内核和用户环境放在同一个地址空间。为什么用户程序不能读写内核内存？有哪些具体机制保护内核内存？
+通过页目录项和页表项的权限位来保护内核内存，只有`PTE_U`位有效时用户才可以访问页目录项或页表项对应的内存页。
+
+# 问题4
+> **问题4** 这个操作系统可以支持的最大物理内存量是多少？为什么？
+最大支持2GB物理内存，因为`UPAGES`最大为4MB，最多可以存放4MB/8B=512K，所以最大物理内存为512K*4096B=2GB。
+
+# 问题5
+> **问题5** 如果我们实际上拥有最大数量的物理内存，那么管理内存需要多少空间开销？这个开销是如何分解的？
+存放`PageInfo`4MB。2GB物理内存有512K个页面，即512K个页表项需要512K*4B=2MB。页目录4KB。    
+总共6MB+4KB。
+
+# 问题6
+> **问题6** 重新查看 `kern/entry.S` 和 `kern/entrypgdir.c` 中的页表设置。在我们开启分页（设置`cr0_PG`）后，`EIP` 仍然是一个很小的数字（略高于 1MB）。我们在什么时候过渡到在 `KERNBASE` 之上的 `EIP` 上运行？是什么让我们能够在启用分页和开始在 `KERNBASE` 之上的 `EIP` 上运行之间继续以低 `EIP` 执行？为什么这个过渡是必要的？
+
+不懂

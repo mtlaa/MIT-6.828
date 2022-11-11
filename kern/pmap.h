@@ -11,8 +11,8 @@
 
 extern char bootstacktop[], bootstack[];
 
-extern struct PageInfo *pages;    // 把 npages 个物理页面按页号连续排列
-extern size_t npages;    // 物理内存的总页数，一页4096B
+extern struct PageInfo *pages;    // 把 npages 个物理页面按页号连续排列，总共占128页, PageInfo 8B
+extern size_t npages;    // 物理内存的总页数，一页4096B，本实验为65536
 
 extern pde_t *kern_pgdir;
 
