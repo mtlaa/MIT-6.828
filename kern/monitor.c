@@ -10,6 +10,7 @@
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -25,6 +26,7 @@ static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
 	{"backtrace", "Display the stack backtrace list", mon_backtrace},
+	{"showmappings","Display all of the physical page mappings that apply to a particular range",mon_showmappings},
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -81,7 +83,29 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
-
+int mon_showmappings(int argc, char **argv, struct Trapframe *tf){
+	/*
+	if(argc<3){
+		cprintf("Missing parameter, please enter address range\n");
+		return 0;
+	}
+	char *low_str = argv[1];
+	char *high_str = argv[2];
+	uintptr_t low = (uint32_t)strtol(low_str, 0, 16);
+	uintptr_t high = (uint32_t)strtol(high_str, 0, 16);
+	for (low; low <= high;low+=0x1000){
+		pte_t* pte = pgdir_walk((pde_t *)UVPT, (void *)low, 0);
+		if(pte==NULL||!(*pte&PTE_P)){
+			cprintf("Virtual address %#x no mapping\n");
+			continue;
+		}
+		cprintf("Virtual address %#x map to Physical address %#x . Permisson: PTE_U = %d , PTE_W = %d\n",
+		 low, PTE_ADDR(*pte),*pte&PTE_U,*pte&PTE_W);
+	}
+	*/
+	cprintf("This command is not supplement\n");
+	return 0;
+}
 
 /***** Kernel monitor command interpreter *****/
 
