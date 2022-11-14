@@ -24,3 +24,4 @@ obj/kern/kernel.asm
 obj/kern/kernel
 obj/kern/init.o
 obj/.vars.INIT_CFLAGS
+obj/.deps
