@@ -19,3 +19,8 @@
 /obj/.deps
 /__pycache__
 /.vscode
+obj/kern/kernel.img
+obj/kern/kernel.asm
+obj/kern/kernel
+obj/kern/init.o
+obj/.vars.INIT_CFLAGS
