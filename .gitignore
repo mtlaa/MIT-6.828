@@ -1,4 +1,6 @@
-/obj/
+obj/user
+obj/lib
+obj/kern
 /jos.in
 /jos.log
 /jos.out
