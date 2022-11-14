@@ -51,3 +51,38 @@ JOS 内核将所有不活动的 `Env` 结构保存在 `env_free_list` 中。这�
 内核使用 `curenv` 指针在任何给定时间跟踪当前执行的环境。在启动期间，运行第一个环境之前，`curenv` 最初设置为 `NULL`。
 
 ## 环境状态
+`Env` 结构在 `inc/env.h` 中定义如下（在未来的实验中会添加更多字段）：
+```c
+struct Env {
+	struct Trapframe env_tf;	// Saved registers
+	struct Env *env_link;		// Next free Env
+	envid_t env_id;			// Unique environment identifier
+	envid_t env_parent_id;		// env_id of this env's parent
+	enum EnvType env_type;		// Indicates special system environments
+	unsigned env_status;		// Status of the environment
+	uint32_t env_runs;		// Number of times environment has run
+
+	// Address space
+	pde_t *env_pgdir;		// Kernel virtual address of page dir
+};
+```
+
+以下是 `Env` 中各字段的用途：    
+* `env_tf`：`Trapframe`结构在 `inc/trap.h` 中定义，在环境未运行时(即当内核或其他环境正在运行时)保存环境的寄存器值。当从用户模式切换到内核模式时，内核会保存这些，以便以后可以从中断的地方恢复环境。     
+* `env_link`：这是 `env_free_list` 中下一个空闲环境 `Env` 的指针。 `env_free_list` 指向列表中的第一个空闲环境。    
+* `env_id`：内核在此处存储一个值，该值唯一标识当前使用此 `Env` 结构的环境（即，使用 `envs` 数组中的此特定插槽）。该用户环境终止后，内核可能会将相同的 `Env` 结构重新分配给不同的环境 --- 但新环境将具有与旧环境不同的 `env_id`，即使新环境正在重新使用 `envs` 数组中的相同插槽。      
+* `env_parent_id`：内核在此处存储创建此环境的环境的 `env_id`,即该环境的父环境的id。通过这种方式，环境可以形成“家谱”，这将有助于允许哪些环境对谁做什么的安全决策。     
+* `env_type`：这用于区分特殊环境。对于大多数环境，它将是 `ENV_TYPE_USER`。我们将在以后的实验中为特殊系统服务环境介绍更多类型。     
+* `env_status`：此变量包含以下值之一：
+   * `ENV_FREE`:表示该 `Env` 结构处于非活动状态，因此位于 `env_free_list` 上。     
+   * `ENV_RUNNABLE`:指示该 `Env` 结构代表正在等待上处理器运行的环境。（就绪态）   
+   * `ENV_RUNNING`:指示该`Env`结构代表正在运行的环境。（运行态）     
+   * `ENV_NOT_RUNNABLE`:指示该 `Env` 结构代表当前正处于活动状态的环境，但它当前尚未准备好运行：例如，因为它正在等待来自另一个环境的进程间通信(IPC)。（阻塞态、等待态）       
+   * `ENV_DYING`:指示该 `Env` 结构代表一个僵尸环境。僵尸环境将在下一次陷入内核时被释放。在 Lab 4 之前我们不会使用这个标志。    
+ * `env_pgdir`：这个变量保存了这个环境的页目录的内核虚拟地址。    
+  
+与 Unix 进程一样，JOS 环境结合了“线程”和“地址空间”的概念。线程主要由保存的寄存器（`env_tf` 字段）定义，地址空间由 `env_pgdir` 指向的页目录和页表定义。要运行环境，内核必须使用保存的寄存器和适当的地址空间来设置 CPU。
+
+我们的 `struct Env` 类似于 xv6 中的 `struct proc`。两种结构都在 `Trapframe` 结构中保存环境（即进程）的用户模式寄存器状态。在 JOS 中，各个环境不像 xv6 中的进程那样拥有自己的内核堆栈。内核中一次只能有一个活动的 JOS 环境，因此 JOS 只需要一个内核堆栈。
+
+## 分配环境数组
