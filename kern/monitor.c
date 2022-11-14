@@ -103,7 +103,7 @@ int mon_showmappings(int argc, char **argv, struct Trapframe *tf){
 		 low, PTE_ADDR(*pte),*pte&PTE_U,*pte&PTE_W);
 	}
 	*/
-	cprintf("This command is not supplement\n");
+	cprintf("This command is not implement.\n");
 	return 0;
 }
 
