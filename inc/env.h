@@ -9,6 +9,12 @@
 
 typedef int32_t envid_t;
 
+// 一个环境ID‘envid_t’（32位无符号）有三部分：
+// 最后10位为 ENVX(eid) 等于该环境在 envs[] 数组中的索引
+// Uniqueifier 区分不同时间创建的环境，即使它们有相同的索引号
+// 所有真实环境都大于 0（因此符号位（最高位）为零）。
+// envid_ts 小于 0 表示错误。 envid_t == 0 是特殊的，并且代表当前环境。
+
 // An environment ID 'envid_t' has three parts:
 //
 // +1+---------------21-----------------+--------10--------+
