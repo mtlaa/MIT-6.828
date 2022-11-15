@@ -69,6 +69,9 @@ struct Pseudodesc gdt_pd = {
 //   On success, sets *env_store to the environment.
 //   On error, sets *env_store to NULL.
 //
+
+// 把 envid 转化为 struct Env* ，如果 checkperm==true ，
+// 则指定的环境（envid所指环境）必须是当前环境（curenv所指环境）或当前环境的直接子环境。
 int
 envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 {
@@ -86,7 +89,7 @@ envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 	// (i.e., does not refer to a _previous_ environment
 	// that used the same slot in the envs[] array).
 	e = &envs[ENVX(envid)];
-	if (e->env_status == ENV_FREE || e->env_id != envid) {
+	if (e->env_status == ENV_FREE || e->env_id != envid) {   // 环境不空 且 是同一个环境
 		*env_store = 0;
 		return -E_BAD_ENV;
 	}
@@ -96,8 +99,8 @@ envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 	// If checkperm is set, the specified environment
 	// must be either the current environment
 	// or an immediate child of the current environment.
-	if (checkperm && e != curenv && e->env_parent_id != curenv->env_id) {
-		*env_store = 0;
+	if (checkperm && e != curenv && e->env_parent_id != curenv->env_id) {   
+		*env_store = 0;   // 指定的环境（envid所指环境）必须是当前环境（curenv所指环境）或当前环境的直接子环境。
 		return -E_BAD_ENV;
 	}
 
@@ -111,11 +114,28 @@ envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 // they are in the envs array (i.e., so that the first call to
 // env_alloc() returns envs[0]).
 //
+// 把所有 env 设为 free，env_id 设为0
+// 按数组的顺序把它们加入 env_free_list 中
 void
 env_init(void)
 {
 	// Set up envs array
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.  ***********************
+	envs[0].env_id = 0;
+	envs[0].env_parent_id = 0;
+	envs[0].env_status = ENV_FREE;
+	envs[0].env_link = NULL;
+	env_free_list = envs;
+	struct Env *last=env_free_list;
+	for (size_t i = 1; i < NENV; i++)
+	{
+		envs[i].env_id = 0;
+		envs[i].env_parent_id = 0;
+		envs[i].env_status = ENV_FREE;
+		envs[i].env_link = NULL;
+		last->env_link = envs + i;
+		last = last->env_link;
+	}
 
 	// Per-CPU part of the initialization
 	env_init_percpu();
