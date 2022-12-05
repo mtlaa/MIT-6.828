@@ -120,7 +120,7 @@ void
 env_init(void)
 {
 	// Set up envs array
-	// LAB 3: Your code here.  ***********************
+	// LAB 3: Your code here.  ******************************
 	envs[0].env_id = 0;
 	envs[0].env_parent_id = 0;
 	envs[0].env_status = ENV_FREE;
@@ -174,9 +174,13 @@ env_init_percpu(void)
 //
 static int
 env_setup_vm(struct Env *e)
-{
+{	
+
+	// 每个环境都有一个页目录，分为内核部分和用户部分，内核部分由继承内核页目录kern_pgdir而来（，用户部分由进程设定）？
+	// 该函数只设置环境页目录的内核部分
+	// 分配一个页面给该环境作为页目录，除了 PDX(UVPT) 处，这个页目录与内核页目录的内容相同
 	int i;
-	struct PageInfo *p = NULL;
+	struct PageInfo *p = NULL;   // 该环境页目录的虚拟地址
 
 	// Allocate a page for the page directory
 	if (!(p = page_alloc(ALLOC_ZERO)))
@@ -198,7 +202,10 @@ env_setup_vm(struct Env *e)
 	//	pp_ref for env_free to work correctly.
 	//    - The functions in kern/pmap.h are handy.
 
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.***********************************
+	p->pp_ref++;
+	e->env_pgdir = (pde_t *)page2kva(p);
+	memcpy(e->env_pgdir, kern_pgdir, PGSIZE); // 初始化新环境地址空间的内核部分。
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -276,17 +283,34 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 // Does not zero or otherwise initialize the mapped pages in any way.
 // Pages should be writable by user and kernel.
 // Panic if any allocation attempt fails.
-//
+// 为环境 env分配 len字节的物理内存，并将其映射到环境地址空间的虚拟地址 va
+// 不要用 0 或者其他的初始化被映射的物理页面
+// 页面应该被用户和内核可写
+// 如果分配失败应该 panic
+// 注意：boot_map_region只用于静态页面的映射（也就是pages、envs数组这些分配后就不回收的），动态的页面映射要用page_insert
 static void
 region_alloc(struct Env *e, void *va, size_t len)
 {
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.*****************************
 	// (But only if you need it for load_icode.)
 	//
 	// Hint: It is easier to use region_alloc if the caller can pass
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	size_t n = ROUNDUP(len, PGSIZE) / PGSIZE;
+	void* rd_va = ROUNDDOWN(va, PGSIZE);
+	for (size_t i = 0; i < n; ++i)
+	{
+		struct PageInfo *p = page_alloc(0);
+		if(p==NULL){
+			panic("region_alloc() memory exhaustion\n");
+		}
+		if(page_insert(e->env_pgdir, p, rd_va, PTE_U | PTE_W)<0){
+			panic("region_alloc() memory exhaustion\n");
+		}
+		rd_va += PGSIZE;
+	}
 }
 
 //

@@ -410,6 +410,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 		new_page->pp_ref++;
 		*pde = page2pa(new_page) | PTE_P | PTE_W | PTE_U;   // 更新页目录项,为什么要设置 PTE_W  PTE_U 这两位?
 		// PTE_W 可写位  PTE_U 用户
+		// 2022年12月5日 回答上面这个问题：因为权限控制主要由页表项中的权限位来完成，所以页目录项中的权限放开，就要设置PTE_W  PTE_U 这两位
 	}
 	// 二级页表存在 和 分配新页表 后的共同操作
 	pte = (pte_t *)KADDR(PTE_ADDR(*pde));
