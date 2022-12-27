@@ -335,6 +335,17 @@ region_alloc(struct Env *e, void *va, size_t len)
 // load_icode panics if it encounters problems.
 //  - How might load_icode fail?  What might be wrong with the given input?
 //
+// 为一个用户进程设置初始程序二进制、堆栈和处理器标志。
+// 这个函数只在运行第一个用户模式环境之前、内核初始化期间被调用
+// 此函数将ELF二进制映像中的所有可加载段加载到环境的用户内存中，从ELF程序头中指示的适当虚拟地址开始。
+// 同时，它将这些段中在程序头中标记为已映射但实际不存在于ELF文件（即程序的bss部分）的任何部分清零。
+// 所有这些都与我们的引导加载程序非常相似，只是引导加载程序还需要从磁盘读取代码。请查看boot/main.c以获得想法。
+// 最后，此函数为程序的初始堆栈映射一个页面。
+// 如果遇到问题应该 panic 
+//  - How might load_icode fail?  What might be wrong with the given input?
+// 
+// - struct Env *e 要操作的环境      - uint8_t *binary  ELF文件的首地址（虚拟地址）
+// 加载binary地址开始处的ELF文件
 static void
 load_icode(struct Env *e, uint8_t *binary)
 {
@@ -366,12 +377,33 @@ load_icode(struct Env *e, uint8_t *binary)
 	//  to make sure that the environment starts executing there.
 	//  What?  (See env_run() and env_pop_tf() below.)
 
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.*************************************
+	struct Elf *ELFHDR = (struct Elf *)binary;
+	if(ELFHDR->e_magic!=ELF_MAGIC){
+		panic("load_icode():input is not Elf\n");
+	}
+	struct Proghdr *ph = (struct Proghdr *)(binary + ELFHDR->e_phoff); // 所有段的数组(段表)
+	size_t ph_num = ELFHDR->e_phnum;								   // 段数量
+
+	lcr3(PADDR(e->env_pgdir));  // lcr3() 设置cr3寄存器值，cr3中存放的是当前的页目录物理地址
+
+	for (size_t i = 0; i < ph_num;++i){
+		if(ph[i].p_type==ELF_PROG_LOAD){
+			region_alloc(e, (void *)ph[i].p_va, ph[i].p_memsz);
+			memset((void *)ph[i].p_va, 0, ph[i].p_memsz);  // 保证任何其余的字节为0
+			memcpy((void *)ph[i].p_va, binary+ph[i].p_offset, ph[i].p_filesz);  
+			// 将binary + ph->p_offset开始的字节复制
+		}
+	}
+
+	lcr3(PADDR(kern_pgdir));
+	e->env_tf.tf_eip = ELFHDR->e_entry;
 
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
 
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.*************************************
+	region_alloc(e, (void*)(USTACKTOP - PGSIZE), PGSIZE);
 }
 
 //
@@ -384,7 +416,15 @@ load_icode(struct Env *e, uint8_t *binary)
 void
 env_create(uint8_t *binary, enum EnvType type)
 {
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.*************************************
+	struct Env *e;
+	int r;
+	if ((r=env_alloc(&e, 0)) != 0)
+	{
+		panic("env_create(): %e\n",r);
+	}
+	e->env_type = type;
+	load_icode(e, binary);
 }
 
 //
@@ -500,7 +540,17 @@ env_run(struct Env *e)
 	//	and make sure you have set the relevant parts of
 	//	e->env_tf to sensible values.
 
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.*********************************
+	if(curenv!=NULL){
+		if(curenv->env_status==ENV_RUNNING){
+			curenv->env_status = ENV_RUNNABLE;
+		}
+	}
+	curenv = e;
+	curenv->env_status = ENV_RUNNING;
+	curenv->env_runs++;
+	lcr3(PADDR(curenv->env_pgdir));
+	env_pop_tf(&curenv->env_tf);
 
 	panic("env_run not yet implemented");
 }

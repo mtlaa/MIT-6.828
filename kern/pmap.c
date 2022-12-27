@@ -95,7 +95,7 @@ boot_alloc(uint32_t n)
 	// to any kernel code or global variables.
 	if (!nextfree) {
 		extern char end[];
-		nextfree = ROUNDUP((char *) end, PGSIZE);
+		nextfree = ROUNDUP((char *) end, PGSIZE)+PGSIZE;
 	}
 
 	// Allocate a chunk large enough to hold 'n' bytes, then update
@@ -145,7 +145,7 @@ mem_init(void)
 	// create initial page directory.
 	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);    // 初始占一整页
 	memset(kern_pgdir, 0, PGSIZE);   // 初始化为0
-
+	cprintf("kern_pgdir = %08x\n", kern_pgdir);
 	//////////////////////////////////////////////////////////////////////
 	// Recursively insert PD in itself as a page table, to form
 	// a virtual page table at virtual address UVPT.
@@ -153,7 +153,8 @@ mem_init(void)
 	// following line.)
 
 	// Permissions: kernel R, user R
-	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
+	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;  // 重大错误！！！！！！！！！
+	// kern_pgdir变为 0的错误已修复：在第一次boot_alloc时把nextfree设置更大一些（+PGSIZE）
 
 	//////////////////////////////////////////////////////////////////////
 	// Allocate an array of npages 'struct PageInfo's and store it in 'pages'.
