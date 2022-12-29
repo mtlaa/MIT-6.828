@@ -64,9 +64,45 @@ trap_init(void)
 {
 	extern struct Segdesc gdt[];
 
-	// LAB 3: Your code here.
-
-	// Per-CPU setup 
+	// LAB 3: Your code here.**************************
+	void Trap_DIVIDE();
+	void Trap_DEBUG();
+	void Trap_NMI();
+	void Trap_BRKPT();
+	void Trap_OFLOW();
+	void Trap_BOUND();
+	void Trap_ILLOP();
+	void Trap_DEVICE();
+	void Trap_DBLFLT();
+	void Trap_COPROC();
+	void Trap_TSS();
+	void Trap_SEGNP();
+	void Trap_STACK();
+	void Trap_GPFLT();
+	void Trap_PGFLT();
+	void Trap_RES();
+	void Trap_FPERR();
+	void Trap_syscall();
+	// 最后一个参数是权限级别，如果要在用户模式下直接执行中断指令（如int3），相应的中断类型IDT中权限应该为3
+	SETGATE(idt[0], 0, GD_KT, Trap_DIVIDE, 0);
+	SETGATE(idt[1], 0, GD_KT, Trap_DEBUG, 0);
+	SETGATE(idt[2], 0, GD_KT, Trap_NMI, 0);
+	SETGATE(idt[3], 0, GD_KT, Trap_BRKPT, 3);
+	SETGATE(idt[4], 0, GD_KT, Trap_OFLOW, 0);
+	SETGATE(idt[5], 0, GD_KT, Trap_BOUND, 0);
+	SETGATE(idt[6], 0, GD_KT, Trap_ILLOP, 0);
+	SETGATE(idt[7], 0, GD_KT, Trap_DEVICE, 0);
+	SETGATE(idt[8], 0, GD_KT, Trap_DBLFLT, 0);
+	SETGATE(idt[9], 0, GD_KT, Trap_COPROC, 0);
+	SETGATE(idt[10], 0, GD_KT, Trap_TSS, 0);
+	SETGATE(idt[11], 0, GD_KT, Trap_SEGNP, 0);
+	SETGATE(idt[12], 0, GD_KT, Trap_STACK, 0);
+	SETGATE(idt[13], 0, GD_KT, Trap_GPFLT, 0);
+	SETGATE(idt[14], 0, GD_KT, Trap_PGFLT, 0);
+	SETGATE(idt[15], 0, GD_KT, Trap_RES, 0);
+	SETGATE(idt[16], 0, GD_KT, Trap_FPERR, 0);
+	SETGATE(idt[T_SYSCALL], 0, GD_KT, Trap_syscall, 3);
+	// Per-CPU setup
 	trap_init_percpu();
 }
 
@@ -143,7 +179,19 @@ static void
 trap_dispatch(struct Trapframe *tf)
 {
 	// Handle processor exceptions.
-	// LAB 3: Your code here.
+	// LAB 3: Your code here.****************
+	switch (tf->tf_trapno)
+	{
+	case T_BRKPT:
+		monitor(tf);
+		return;
+	case T_PGFLT:
+		page_fault_handler(tf);
+		return;
+
+	default:
+		break;
+	}
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
