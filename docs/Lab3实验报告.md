@@ -417,3 +417,37 @@ trap_dispatch(struct Trapframe *tf)
 > 4. 您认为这些机制的意义何在，特别是考虑到 `user/softint` 测试程序的作用？
 
 避免用户代码使用特权指令。
+
+# 练习7
+在`trap_dispatch`中，使用从寄存器保存的值作为参数传递，返回值保存到`%eax`
+```c
+	case T_SYSCALL:
+		tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax,tf->tf_regs.reg_edx,tf->tf_regs.reg_ecx,
+		tf->tf_regs.reg_ebx,tf->tf_regs.reg_edi,tf->tf_regs.reg_esi);
+		return;
+```
+在`kern/syscall.c` 的`syscall()`中，系统调用号定义在`inc/syscall.h`中，调用参数顺序一致
+```c
+int32_t
+syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
+{
+	// Call the function corresponding to the 'syscallno' parameter.
+	// Return any appropriate return value.
+	// LAB 3: Your code here.*********************
+	// panic("syscall not implemented");
+
+	switch (syscallno) {
+	case SYS_cputs:
+		sys_cputs((char *)a1, (size_t)a2);
+		return 0;
+	case SYS_cgetc:
+		return sys_cgetc();
+	case SYS_env_destroy:
+		return sys_env_destroy((envid_t)a1);
+	case SYS_getenvid:
+		return sys_getenvid();
+	default:
+		return -E_INVAL;
+	}
+}
+```
