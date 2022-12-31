@@ -23,10 +23,7 @@ sys_cputs(const char *s, size_t len)
 	// Destroy the environment if not.
 
 	// LAB 3: Your code here.***********************
-	pte_t *pte_r = pgdir_walk(curenv->env_pgdir, (void *)s, 0);
-	if(pte_r==NULL||!(*pte_r&PTE_U)){
-		sys_env_destroy(curenv->env_id);
-	}
+	user_mem_assert(curenv, (const void *)s, len, 0);
 	// Print the string supplied by the user.
 	cprintf("%.*s", len, s);
 }

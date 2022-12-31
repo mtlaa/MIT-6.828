@@ -451,3 +451,143 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	}
 }
 ```
+
+# 练习8
+在`libmain()`中更改如下
+```c
+void
+libmain(int argc, char **argv)
+{
+	// set thisenv to point at our Env structure in envs[].
+	// LAB 3: Your code here.*******************
+	thisenv = envs + ENVX(sys_getenvid());
+
+	// save the name of the program so that panic() can use it
+	if (argc > 0)
+		binaryname = argv[0];
+
+	// call user main routine
+	umain(argc, argv);
+
+	// exit gracefully
+	exit();
+}
+```
+
+# 练习9和10
+`kern/trap.c`中的`page_fault_handler`
+```c
+void
+page_fault_handler(struct Trapframe *tf)
+{
+	uint32_t fault_va;
+
+	// Read processor's CR2 register to find the faulting address
+	fault_va = rcr2();
+
+	// Handle kernel-mode page faults.
+	if((tf->tf_cs&3)==0){
+		// 如果是内核模式的页面错误
+		panic("page fault in kernel-mode.\n");
+	}
+	// LAB 3: Your code here.******************
+
+	// We've already handled kernel-mode exceptions, so if we get here,
+	// the page fault happened in user mode.
+
+	// Destroy the environment that caused the fault.
+	cprintf("[%08x] user fault va %08x ip %08x\n",
+		curenv->env_id, fault_va, tf->tf_eip);
+	print_trapframe(tf);
+	env_destroy(curenv);
+}
+```
+
+`user_mem_check`
+```c
+int
+user_mem_check(struct Env *env, const void *va, size_t len, int perm)
+{
+	// LAB 3: Your code here.*************** 判断该环境是否有权限访问访问内存[va, va+len)
+	perm = perm | PTE_P;
+	const void *rd_va = ROUNDDOWN(va, PGSIZE);
+	size_t n = ROUNDUP(len, PGSIZE) / PGSIZE;
+	for (size_t i = 0; i < n;++i,rd_va+=PGSIZE){
+		if((uintptr_t)rd_va>=ULIM){
+			user_mem_check_addr = va>=rd_va?(uintptr_t)va:(uintptr_t)rd_va;
+			return -E_FAULT;
+		}
+		pte_t *pte_p = pgdir_walk(env->env_pgdir, rd_va, 0);
+		if(!pte_p||(*pte_p&perm)!=perm){
+			user_mem_check_addr = va>=rd_va?(uintptr_t)va:(uintptr_t)rd_va;
+			return -E_FAULT;
+		}
+	}
+	return 0;
+}
+```
+`sys_cputs`
+```c
+static void
+sys_cputs(const char *s, size_t len)
+{
+	// Check that the user has permission to read memory [s, s+len).
+	// Destroy the environment if not.
+
+	// LAB 3: Your code here.***********************
+	user_mem_assert(curenv, (const void *)s, len, 0);
+	// Print the string supplied by the user.
+	cprintf("%.*s", len, s);
+}
+```
+
+`debuginfo_eip`
+```c
+	// Make sure this memory is valid.
+	// Return -1 if it is not.  Hint: Call user_mem_check.
+	// LAB 3: Your code here.*************
+	if(user_mem_check(curenv,(const void*)usd,sizeof(struct UserStabData),PTE_U)<0)
+		return -1;
+
+	// Make sure the STABS and string table memory is valid.
+	// LAB 3: Your code here.******************
+	if(user_mem_check(curenv,(const void*)stabs,PGSIZE,PTE_U)<0||user_mem_check(curenv,(const void*)stabstr,PGSIZE,PTE_U)<0)
+		return -1;
+```
+
+结果：
+```
+divzero: OK (3.0s) 
+softint: OK (1.7s) 
+badsegment: OK (2.0s) 
+Part A score: 30/30
+
+faultread: OK (2.0s) 
+faultreadkernel: OK (2.0s) 
+faultwrite: OK (2.0s) 
+faultwritekernel: OK (2.0s) 
+breakpoint: OK (2.0s) 
+testbss: OK (2.0s) 
+hello: OK (2.0s) 
+buggyhello: OK (2.0s) 
+    (Old jos.out.buggyhello failure log removed)
+buggyhello2: OK (2.0s) 
+evilhello: OK (2.0s) 
+Part B score: 50/50
+
+Score: 80/80
+```
+```bash
+K> backtrace
+Stack backtrace:
+  ebp efffff00  eip f0100ac0  args 00000001 efffff28 f01d2000 f010688d f011af48
+        kern/monitor.c:169: monitor+353
+  ebp efffff80  eip f01042d3  args f01d2000 efffffbc f0150508 00000092 f011afd8
+        kern/trap.c:186: trap+239
+  ebp efffffb0  eip f01043ca  args efffffbc 00000000 00000000 eebfdfc0 efffffdc
+        kern/syscall.c:70: syscall+0
+  ebp eebfdfc0  eip 00800087  args 00000000 00000000 eebfdff0 00800058 00000000
+        lib/libmain.c:26: libmain+78
+  ebp eebfdff0  eip 00800031  args 00000000 00000000Incoming TRAP frame at 0xeffffe74
+kernel panic at kern/trap.c:260: page fault in kernel-mode.
+```

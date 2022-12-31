@@ -589,8 +589,21 @@ static uintptr_t user_mem_check_addr;
 int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
-	// LAB 3: Your code here.
-
+	// LAB 3: Your code here.*************** 判断该环境是否有权限访问访问内存[va, va+len)
+	perm = perm | PTE_P;
+	const void *rd_va = ROUNDDOWN(va, PGSIZE);
+	size_t n = ROUNDUP(len, PGSIZE) / PGSIZE;
+	for (size_t i = 0; i < n;++i,rd_va+=PGSIZE){
+		if((uintptr_t)rd_va>=ULIM){
+			user_mem_check_addr = va>=rd_va?(uintptr_t)va:(uintptr_t)rd_va;
+			return -E_FAULT;
+		}
+		pte_t *pte_p = pgdir_walk(env->env_pgdir, rd_va, 0);
+		if(!pte_p||(*pte_p&perm)!=perm){
+			user_mem_check_addr = va>=rd_va?(uintptr_t)va:(uintptr_t)rd_va;
+			return -E_FAULT;
+		}
+	}
 	return 0;
 }
 
