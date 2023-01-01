@@ -44,7 +44,7 @@
  *                     :              .               :                   |
  *                     :              .               :                   |
  *    MMIOLIM ------>  +------------------------------+ 0xefc00000      --+
- *                     |       Memory-mapped I/O      | RW/--  PTSIZE
+ *                     |       Memory-mapped I/O      | RW/--  PTSIZE        MMIO hole
  * ULIM, MMIOBASE -->  +------------------------------+ 0xef800000
  *                     |  Cur. Page Table (User R-)   | R-/R-  PTSIZE
  *    UVPT      ---->  +------------------------------+ 0xef400000

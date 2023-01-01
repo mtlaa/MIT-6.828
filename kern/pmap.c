@@ -333,6 +333,10 @@ page_init(void)
 		}else if(page2pa(pages+i)>=IOPHYSMEM&&page2pa(pages+i)<truly_end){
 			pages[i].pp_ref = 1;
 			pages[i].pp_link = NULL;
+		}else if(page2pa(pages+i)==MPENTRY_PADDR){
+			// Lab 4
+			pages[i].pp_ref = 1;
+			pages[i].pp_link = NULL;
 		}else{
 			pages[i].pp_ref = 0;
 			pages[i].pp_link = page_free_list;
@@ -632,8 +636,20 @@ mmio_map_region(physaddr_t pa, size_t size)
 	//
 	// Hint: The staff solution uses boot_map_region.
 	//
-	// Your code here:
-	panic("mmio_map_region not implemented");
+
+	// 保留base开始的size字节，并且把物理页面[pa,pa+size)映射到[base,base+size)
+	// 页表项权限位使用PTE_W|PTE_PCD|PTE_PWT (缓存禁用和写入)创建映射
+	// size不必是PGSIZE的倍数，需要ROUNDUP
+	// 如果本次保留操作溢出（超过了MMIOLIM）则需要panic
+	// 提示：使用boot_map_region函数
+	// Your code here:******************
+	size = ROUNDUP(size, PGSIZE);
+	if(base+size>=MMIOLIM)
+		panic("mmio_map_region reservation overflow MMIOLIM.\n");
+	boot_map_region(kern_pgdir, base, size, pa, PTE_W | PTE_PCD | PTE_PWT);
+	base += size;
+	return (void *)(base-size);
+	// panic("mmio_map_region not implemented");
 }
 
 static uintptr_t user_mem_check_addr;
