@@ -53,11 +53,11 @@
 - **每 CPU 的内核堆栈**        
   因为多个 CPU 可以同时陷入内核，所以我们需要为每个处理器提供一个单独的内核堆栈，以防止它们相互干扰执行。数组 `percpu_kstacks[NCPU][KSTKSIZE]` 为 NCPU 的内核堆栈保留空间。        
   在实验 2 中，您将`bootstack`所指的物理内存映射为位于`KSTACKTOP`正下方的BSP内核堆栈。同样，在本实验中，您将把每个 CPU 的内核堆栈映射到这个区域，保护页充当它们之间的缓冲区。 CPU 0 的堆栈仍然会从 `KSTACKTOP` 向下增长； CPU 1 的堆栈将从 CPU 0 堆栈底部下方的 `KSTKGAP` 字节开始，依此类推。 `inc/memlayout.h` 显示映射布局。
-- **每 CPU TSS(任务状态段) 和 TSS 描述符**
+- **每 CPU TSS(任务状态段) 和 TSS 描述符**                 
   还需要每个 CPU 任务状态段 (TSS) 以指定每个 CPU 的内核堆栈所在的位置。 CPU i 的 TSS 存储在 `cpus[i].cpu_ts` 中，相应的 TSS 描述符定义在 GDT 条目 `gdt[(GD_TSS0 >> 3) + i]` 中。 `kern/trap.c` 中定义的全局 `ts` 变量将不再有用。
-- **每 CPU 当前环境指针**
+- **每 CPU 当前环境指针**             
   由于每个 CPU 可以同时运行不同的用户进程，我们重新定义了符号 `curenv` 来指代 `cpus[cpunum()].cpu_env`（或 `thiscpu->cpu_env`），它指向当前 CPU 上当前执行的环境。
-- **每 CPU 系统寄存器**
+- **每 CPU 系统寄存器**                
   所有寄存器，包括系统寄存器，都是 CPU 私有的。因此，初始化这些寄存器的指令，如`lcr3()`、`ltr()`、`lgdt()`、`lidt()`等，必须在每个CPU上执行一次。为此定义了函数 `env_init_percpu()` 和 `trap_init_percpu()`。                
   除此之外，如果您在您的解决方案中添加了任何额外的每个 CPU 状态或执行了任何额外的特定于 CPU 的初始化（例如，在 CPU 寄存器中设置新位）以挑战早期实验室中的问题，请务必复制它们在每个 CPU 上！
 

@@ -63,3 +63,93 @@ page_init(void)
 	}
 }
 ```
+
+# 问题1
+> **Question**
+> 1. 将 `kern/mpentry.S` 与 `boot/boot.S` 比较。请记住，`kern/mpentry.S` 被编译并链接到 `KERNBASE` 之上，就像内核中的其他所有内容一样，宏 `MPBOOTPHYS` 的目的是什么？为什么在 `kern/mpentry.S` 中有必要，而在 `boot/boot.S` 中没有？换句话说，如果在 `kern/mpentry.S` 中省略它会出什么问题？     
+>提示：回想一下我们在 lab 1 中讨论过的链接地址和加载地址之间的区别。
+
+宏`MPBOOTPHYS`的作用是得到`kern/mpentry.S`中变量的物理地址（`((s) - mpentry_start + MPENTRY_PADDR)`），`kern/mpentry.S`的链接地址是在`KERNBASE` 之上,加载地址为`MPENTRY_PADDR:0x7000`。`boot.S`中，由于没有启用分页机制，所以我们能够指定程序开始执行的地方以及程序加载的地址；但是，在`mpentry.S`的时候，由于主CPU已经处于保护模式下了，因此不能直接指定物理地址，需要把给定的线性地址映射到相应的物理地址（使用这个宏）。
+
+# 练习3
+> **Exercise 3** 修改 `mem_init_mp()`（在 `kern/pmap.c` 中）以映射从 `KSTACKTOP` 开始的每个 CPU 堆栈，如 `inc/memlayout.h` 中所示。每个堆栈的大小是 `KSTKSIZE` 字节加上未映射保护页的 `KSTKGAP` 字节。您的代码应该通过 `check_kern_pgdir()` 中的新检查。
+```c
+// 映射每个CPU的堆栈到虚拟内存[KSTACKTOP-PTSIZE, KSTACKTOP)
+static void
+mem_init_mp(void)
+{
+	// Map per-CPU stacks starting at KSTACKTOP, for up to 'NCPU' CPUs.
+	//
+	// For CPU i, use the physical memory that 'percpu_kstacks[i]' refers
+	// to as its kernel stack. CPU i's kernel stack grows down from virtual
+	// address kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP), and is
+	// divided into two pieces, just like the single stack you set up in
+	// mem_init:
+	//     * [kstacktop_i - KSTKSIZE, kstacktop_i)
+	//          -- backed by physical memory
+	//     * [kstacktop_i - (KSTKSIZE + KSTKGAP), kstacktop_i - KSTKSIZE)
+	//          -- not backed; so if the kernel overflows its stack,
+	//             it will fault rather than overwrite another CPU's stack.
+	//             Known as a "guard page".
+	//     Permissions: kernel RW, user NONE
+	//
+	// LAB 4: Your code here:*************************
+	for (size_t i = 0; i < NCPU;++i){
+		uintptr_t kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);
+		boot_map_region(kern_pgdir, kstacktop_i - KSTKSIZE, KSTKSIZE, PADDR(percpu_kstacks[i]), PTE_W);
+	}
+}
+```
+
+# 练习4
+> **Exercise 4** `trap_init_percpu()` (`kern/trap.c`) 中的代码为 BSP 初始化 TSS 和 TSS 描述符。它在实验 3 中有效，但在其他 CPU 上运行时不正确。更改代码，使其可以在所有 CPU 上工作。 （注意：您的新代码不应再使用全局 `ts` 变量。） 
+
+注意，`trap_init_percpu()`只被调用一次就初始化所有CPU
+```c
+// Initialize and load the per-CPU TSS and IDT
+void
+trap_init_percpu(void)
+{
+	// The example code here sets up the Task State Segment (TSS) and
+	// the TSS descriptor for CPU 0. But it is incorrect if we are
+	// running on other CPUs because each CPU has its own kernel stack.
+	// Fix the code so that it works for all CPUs.
+	//
+	// Hints:
+	//   - The macro "thiscpu" always refers to the current CPU's
+	//     struct CpuInfo;
+	//   - The ID of the current CPU is given by cpunum() or
+	//     thiscpu->cpu_id;
+	//   - Use "thiscpu->cpu_ts" as the TSS for the current CPU,
+	//     rather than the global "ts" variable;
+	//   - Use gdt[(GD_TSS0 >> 3) + i] for CPU i's TSS descriptor;
+	//   - You mapped the per-CPU kernel stacks in mem_init_mp()
+	//   - Initialize cpu_ts.ts_iomb to prevent unauthorized environments
+	//     from doing IO (0 is not the correct value!)
+	//
+	// ltr sets a 'busy' flag in the TSS selector, so if you
+	// accidentally load the same TSS on more than one CPU, you'll
+	// get a triple fault.  If you set up an individual CPU's TSS
+	// wrong, you may not get a fault until you try to return from
+	// user space on that CPU.
+	//
+	// LAB 4: Your code here:************
+	// modify
+	for (size_t i = 0; i < NCPU;++i)
+	{
+		cpus[i].cpu_ts.ts_esp0 = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);
+		cpus[i].cpu_ts.ts_ss0 = GD_KD;
+		cpus[i].cpu_ts.ts_iomb = sizeof(struct Taskstate);
+		gdt[(GD_TSS0 >> 3) + i] = SEG16(STS_T32A, (uint32_t)(&cpus[i].cpu_ts),
+										sizeof(struct Taskstate) - 1, 0);
+		gdt[(GD_TSS0 >> 3) + i].sd_s = 0;
+	}
+
+	// Load the TSS selector (like other segment selectors, the
+	// bottom three bits are special; we leave them 0)
+	ltr(GD_TSS0);
+
+	// Load the IDT
+	lidt(&idt_pd);
+}
+```
