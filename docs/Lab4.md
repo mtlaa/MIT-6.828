@@ -33,7 +33,7 @@
 
 > **Exercise 1** 在 `kern/pmap.c` 中实现 `mmio_map_region`。要了解它是如何使用的，请查看 `kern/lapic.c` 中 `lapic_init` 的开头。在运行 `mmio_map_region` 的测试之前，您还必须完成下一个练习。
 
-## 应用处理器引导程序
+### 应用处理器引导程序
 在启动 AP 之前，BSP 应该首先收集有关多处理器系统的信息，例如 CPU 总数、它们的 APIC ID 和 LAPIC 单元的 MMIO 地址。 `kern/mpconfig.c` 中的 `mp_init()` 函数通过读取驻留在 BIOS 内存区域中的 MP 配置表来检索此信息。
 
 `boot_aps()`函数（在`kern/init.c`中）驱动 AP 引导过程。AP 在实模式下启动，很像引导加载程序在`boot/boot.S`中启动的方式，因此`boot_aps()` 将 AP 入口代码 ( `kern/mpentry.S` ) 复制到在实模式下可寻址的内存位置。与引导加载程序不同，我们可以控制 AP 从何处开始执行代码；我们将入口代码复制到`0x7000` ( `MPENTRY_PADDR`)，但是 640KB 以下的任何未使用的、页面对齐的物理地址都可以使用。
@@ -46,7 +46,7 @@
 > 1. 将 `kern/mpentry.S` 与 `boot/boot.S` 比较。请记住，`kern/mpentry.S` 被编译并链接到 `KERNBASE` 之上，就像内核中的其他所有内容一样，宏 `MPBOOTPHYS` 的目的是什么？为什么在 `kern/mpentry.S` 中有必要，而在 `boot/boot.S` 中没有？换句话说，如果在 `kern/mpentry.S` 中省略它会出什么问题？     
 >提示：回想一下我们在 lab 1 中讨论过的链接地址和加载地址之间的区别。
 
-## 每个CPU的状态和初始化
+### 每个CPU的状态和初始化
 在编写多处理器操作系统时，区分每个处理器私有的 CPU 状态和整个系统共享的全局状态很重要。 `kern/cpu.h` 定义了每个 CPU 的大部分状态，包括存储每个 CPU 变量的 `struct CpuInfo`。 `cpunum()` 总是返回调用它的 CPU 的 ID，它可以用作 `cpus` 等数组的索引。或者，宏 `thiscpu` 是当前 CPU 的 `struct CpuInfo` 的指针。
 
 以下是您应该注意的每个 CPU 状态：
@@ -80,4 +80,47 @@ SMP: CPU 2 starting
 SMP: CPU 3 starting
 ```
 
-## 锁定
+### 锁
+我们当前的代码在 `mp_main()` 中初始化 AP 后就会“自旋”（spin）。在让 AP 更进一步之前，我们首先需要解决多个 CPU 同时运行内核代码时的竞争条件。实现这一点的最简单方法是使用大内核锁。大内核锁是一个单一的全局锁，每当环境进入内核模式时就会持有，并在环境返回用户模式时释放。在此模型中，用户模式下的环境可以在任何可用的 CPU 上并发运行，但内核模式下只能运行一个环境；任何其他试图进入内核模式的环境都将被迫等待。
+
+`kern/spinlock.h` 声明了大内核锁，即`kernel_lock`。它还提供了 `lock_kernel()` 和 `unlock_kernel()` 以获取和释放锁。您应该在四个位置应用大内核锁：
+- 在 `i386_init()` 中，在 BSP 唤醒其他 CPU 之前获取锁。
+- 在`mp_main()`中，初始化AP后获取锁，然后调用`sched_yield()`在这个AP上开始运行环境。
+- 在 `trap()` 中，从用户模式陷入时获取锁。要确定trap是发生在用户模式还是内核模式，请检查 `tf_cs` 的低位。
+- 在 `env_run()` 中，在切换到用户模式之前立即释放锁。不要太早或太晚这样做，否则您将遇到竞争或死锁。
+
+> **Exercise 5** 如上所述，通过在适当的位置调用 `lock_kernel()` 和 `unlock_kernel()` 来应用大内核锁。
+
+现在还不能检查练习5是否正确，在下一个练习中实现调度程序后才可以检查。
+
+> **Question 2** 似乎使用大内核锁可以保证一次只有一个 CPU 可以运行内核代码。为什么我们仍然需要为每个 CPU 提供单独的内核堆栈？描述一个使用共享内核栈会出错的场景，即使有大内核锁的保护。
+
+## 循环调度
+您在本实验中的下一个任务是更改 JOS 内核，以便它可以以“循环”方式在多个环境之间切换。 JOS 中的循环调度工作如下：
+- `kern/sched.c` 中的函数 `sched_yield()` 负责选择一个新的环境来运行。它以循环方式顺序搜索 `envs[]` 数组，每次搜索起始位置从先前运行的环境之后开始（如果没有先前运行的环境，则从数组的开头开始），选择它找到的第一个状态为 `ENV_RUNNABLE` 的环境（请参阅`inc/env.h`)，并调用 `env_run()` 跳转到该环境。
+- `sched_yield()` 绝不能同时在两个 CPU 上运行相同的环境。它可以判断环境当前正在某个 CPU（可能是当前 CPU）上运行，因为该环境的状态将为 `ENV_RUNNING`。
+- 我们为您实现了一个新的系统调用，`sys_yield()`，用户环境可以调用它来调用内核的 `sched_yield()` 函数，从而主动放弃 CPU ，让给其他环境。
+
+> **Exercise 6** 如上所述，在 `sched_yield()` 中实现循环调度。不要忘记修改 `syscall()` 以分派 `sys_yield()`系统调用。                 
+> 确保在 `mp_main` 中调用 `sched_yield()`。                           
+> 修改 `kern/init.c` 以创建三个（或更多！）运行程序 `user/yield.c` 的环境。                   
+> 运行 `make qemu`。在终止之前，您应该看到环境在彼此之间来回切换五次，如下所示。                  
+> 也可以指定 CPU 数量进行测试：`make qemu CPUS=2`。                 
+> ```
+>...
+>Hello, I am environment 00001000.
+>Hello, I am environment 00001001.
+>Hello, I am environment 00001002.
+>Back in environment 00001000, iteration 0.
+>Back in environment 00001001, iteration 0.
+>Back in environment 00001002, iteration 0.
+>Back in environment 00001000, iteration 1.
+>Back in environment 00001001, iteration 1.
+>Back in environment 00001002, iteration 1.
+>...
+>```
+>`yield.c` 程序退出后，系统中将没有可运行的环境，调度程序应该调用 JOS 内核监视器。如果上述任何一种情况都没有发生，请在继续之前修复您的代码。
+
+> **Question**            
+> 3. 在您的 `env_run()` 实现中，您应该调用 `lcr3()`。在调用 `lcr3()` 之前和之后，您的代码引用（至少应该引用）变量 `e`，即 `env_run` 的参数。加载 `%cr3` 寄存器后，MMU 使用的寻址上下文会立即更改。但是虚拟地址（即 `e`）相对于给定的地址上下文具有——地址上下文指定虚拟地址映射到的物理地址。为什么在寻址切换之前和之后都可以解引用指针 `e`？                
+> 4. 每当内核从一个环境切换到另一个环境时，它必须确保保存旧环境的寄存器，以便以后可以正确恢复它们。为什么？这发生在哪里？
