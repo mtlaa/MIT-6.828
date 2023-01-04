@@ -104,7 +104,7 @@ mem_init_mp(void)
 # 练习4
 > **Exercise 4** `trap_init_percpu()` (`kern/trap.c`) 中的代码为 BSP 初始化 TSS 和 TSS 描述符。它在实验 3 中有效，但在其他 CPU 上运行时不正确。更改代码，使其可以在所有 CPU 上工作。 （注意：您的新代码不应再使用全局 `ts` 变量。） 
 
-注意，`trap_init_percpu()`只被调用一次就初始化所有CPU
+~~注意，`trap_init_percpu()`只被调用一次就初始化所有CPU~~，并不是，每个cpu都会执行这些初始化代码，所以该函数只需要初始化当前cpu就行
 ```c
 // Initialize and load the per-CPU TSS and IDT
 void
@@ -135,19 +135,20 @@ trap_init_percpu(void)
 	//
 	// LAB 4: Your code here:************
 	// modify
-	for (size_t i = 0; i < NCPU;++i)
-	{
-		cpus[i].cpu_ts.ts_esp0 = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);
-		cpus[i].cpu_ts.ts_ss0 = GD_KD;
-		cpus[i].cpu_ts.ts_iomb = sizeof(struct Taskstate);
-		gdt[(GD_TSS0 >> 3) + i] = SEG16(STS_T32A, (uint32_t)(&cpus[i].cpu_ts),
-										sizeof(struct Taskstate) - 1, 0);
-		gdt[(GD_TSS0 >> 3) + i].sd_s = 0;
-	}
+	// Setup a TSS so that we get the right stack
+	// when we trap to the kernel.
+	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP - thiscpu->cpu_id * (KSTKSIZE + KSTKGAP);
+	thiscpu->cpu_ts.ts_ss0 = GD_KD;
+	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);
+
+	// Initialize the TSS slot of the gdt.
+	gdt[(GD_TSS0 >> 3)+cpunum()] = SEG16(STS_T32A, (uint32_t) (&thiscpu->cpu_ts),
+					sizeof(struct Taskstate) - 1, 0);
+	gdt[(GD_TSS0 >> 3)+cpunum()].sd_s = 0;
 
 	// Load the TSS selector (like other segment selectors, the
 	// bottom three bits are special; we leave them 0)
-	ltr(GD_TSS0);
+	ltr(GD_TSS0 + (cpunum() << 3));
 
 	// Load the IDT
 	lidt(&idt_pd);
@@ -158,3 +159,53 @@ trap_init_percpu(void)
 > **Question 2** 似乎使用大内核锁可以保证一次只有一个 CPU 可以运行内核代码。为什么我们仍然需要为每个 CPU 提供单独的内核堆栈？描述一个使用共享内核栈会出错的场景，即使有大内核锁的保护。
 
 因为内核堆栈中可能会存放上次运行的信息以及该CPU的私有数据，所以需要为每个CPU提供单独的内核堆栈。
+
+# 练习6
+`sched_yield()`
+```c
+// Choose a user environment to run and run it.
+void
+sched_yield(void)
+{
+	struct Env *idle;
+
+	// LAB 4: Your code here.**********************
+	size_t start = 0, i;
+	if (curenv)
+	{
+		start = ENVX(curenv->env_id);
+	}
+	for(i=(start+1)%NENV;i!=start;i=(i+1)%NENV){
+		if(envs[i].env_status==ENV_RUNNABLE){
+			env_run(envs + i);
+		}
+	}
+	if(curenv&&curenv->env_status==ENV_RUNNING&&thiscpu->cpu_env==curenv)
+		env_run(curenv);
+
+	// sched_halt never returns
+	sched_halt();
+}
+```
+`syscall()`
+```c
+	case SYS_yield:
+		sys_yield();
+		return 0;
+```
+`kern/init.c`中的`i386_init()`,注意，因为`user_primes`程序会调用`fork()`(还未实现，会panic)，所以需要注释掉不创建该环境，才可以得到正常的结果。
+```c
+#if defined(TEST)
+	// Don't touch -- used by grading script!
+	ENV_CREATE(TEST, ENV_TYPE_USER);
+#else
+	// Touch all you want.
+	// ENV_CREATE(user_primes, ENV_TYPE_USER);
+#endif // TEST*
+	ENV_CREATE(user_yield, ENV_TYPE_USER);
+	ENV_CREATE(user_yield, ENV_TYPE_USER);
+	ENV_CREATE(user_yield, ENV_TYPE_USER);
+
+	// Schedule and run the first user environment!
+	sched_yield();
+```
