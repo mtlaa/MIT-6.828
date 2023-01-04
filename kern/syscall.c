@@ -95,6 +95,11 @@ sys_exofork(void)
 	}
 	e->env_status = ENV_NOT_RUNNABLE;
 	e->env_tf = curenv->env_tf;
+	e->env_tf.tf_regs.reg_eax = 0;   // 这行代码必不可少！！为什么？？？？？？？？？！！！！！！！
+	// 代码执行到此处是因为当前环境调用了sys_exofork()系统调用，创建的新环境复制了当前环境的env_tf
+	// 新环境和当前环境（父）就有了相同的寄存器状态，就相当于新环境也调用sys_exofork()系统调用（其实并没有）
+	// lab3中我们知道eax寄存器会保存系统调用的返回值，父环境应该返回新环境的id，子环境应该返回0
+	// 所以要把子环境的eax寄存器设为0  【新的进程从sys_exofork()的返回值应该为0】
 	return e->env_id;
 }
 
@@ -116,7 +121,7 @@ sys_env_set_status(envid_t envid, int status)
 
 	// LAB 4: Your code here.*******************
 	// panic("sys_env_set_status not implemented");
-	if(status!=ENV_RUNNABLE||status!=ENV_NOT_RUNNABLE)
+	if(status!=ENV_RUNNABLE&&status!=ENV_NOT_RUNNABLE)
 		return -E_INVAL;
 	struct Env *e;
 	if(envid2env(envid,&e,1)==-E_BAD_ENV)
@@ -173,7 +178,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 		return -E_BAD_ENV;
 	if((uintptr_t)va>=UTOP||((uintptr_t)va)%PGSIZE!=0)
 		return -E_INVAL;
-	if(!perm&PTE_P||!perm&PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
+	if((perm&PTE_P)!=PTE_P||(perm&PTE_U)!=PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
 		return -E_INVAL;
 	struct PageInfo *p = page_alloc(1);
 	if(!p)
@@ -212,8 +217,24 @@ sys_page_map(envid_t srcenvid, void *srcva,
 	//   Use the third argument to page_lookup() to
 	//   check the current permissions on the page.
 
-	// LAB 4: Your code here.
-	panic("sys_page_map not implemented");
+	// LAB 4: Your code here.************************
+	// panic("sys_page_map not implemented");
+	struct Env *srce, *dste;
+	if(envid2env(srcenvid,&srce,1)==-E_BAD_ENV||envid2env(dstenvid,&dste,1)==-E_BAD_ENV)
+		return -E_BAD_ENV;
+	if((uintptr_t)srcva>=UTOP||(uintptr_t)dstva>=UTOP||
+		((uintptr_t)srcva)%PGSIZE!=0||((uintptr_t)dstva)%PGSIZE!=0)
+		return -E_INVAL;
+	if((perm&PTE_P)!=PTE_P||(perm&PTE_U)!=PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
+		return -E_INVAL;
+	struct PageInfo *p;
+	pte_t *src_pte;
+	p = page_lookup(srce->env_pgdir, srcva, &src_pte);
+	if(!p)
+		return -E_INVAL;
+	if(perm&PTE_W&&((*src_pte)&PTE_W)!=PTE_W)
+		return -E_INVAL;
+	return page_insert(dste->env_pgdir, p, dstva, perm);
 }
 
 // Unmap the page of memory at 'va' in the address space of 'envid'.
@@ -228,8 +249,15 @@ sys_page_unmap(envid_t envid, void *va)
 {
 	// Hint: This function is a wrapper around page_remove().
 
-	// LAB 4: Your code here.
-	panic("sys_page_unmap not implemented");
+	// LAB 4: Your code here.*******************
+	// panic("sys_page_unmap not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1)<0)
+		return -E_BAD_ENV;
+	if((uintptr_t)va>=UTOP||((uintptr_t)va)%PGSIZE!=0)
+		return -E_INVAL;
+	page_remove(e->env_pgdir, va);
+	return 0;
 }
 
 // Try to send 'value' to the target env 'envid'.
