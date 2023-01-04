@@ -85,8 +85,17 @@ sys_exofork(void)
 	// from the current environment -- but tweaked so sys_exofork
 	// will appear to return 0.
 
-	// LAB 4: Your code here.
-	panic("sys_exofork not implemented");
+	// LAB 4: Your code here.*******************
+	// panic("sys_exofork not implemented");
+	// 使用env_alloc()创建一个新环境，状态设置为ENV_NOT_RUNNABLE，寄存器env_tf由当前环境拷贝而来
+	struct Env *e;
+	int err = env_alloc(&e, curenv->env_id);
+	if(err!=0){
+		return err;
+	}
+	e->env_status = ENV_NOT_RUNNABLE;
+	e->env_tf = curenv->env_tf;
+	return e->env_id;
 }
 
 // Set envid's env_status to status, which must be ENV_RUNNABLE
@@ -105,8 +114,15 @@ sys_env_set_status(envid_t envid, int status)
 	// check whether the current environment has permission to set
 	// envid's status.
 
-	// LAB 4: Your code here.
-	panic("sys_env_set_status not implemented");
+	// LAB 4: Your code here.*******************
+	// panic("sys_env_set_status not implemented");
+	if(status!=ENV_RUNNABLE||status!=ENV_NOT_RUNNABLE)
+		return -E_INVAL;
+	struct Env *e;
+	if(envid2env(envid,&e,1)==-E_BAD_ENV)
+		return -E_BAD_ENV;
+	e->env_status = status;
+	return 0;
 }
 
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
@@ -150,8 +166,23 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	//   If page_insert() fails, remember to free the page you
 	//   allocated!
 
-	// LAB 4: Your code here.
-	panic("sys_page_alloc not implemented");
+	// LAB 4: Your code here.***********
+	// panic("sys_page_alloc not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1)==-E_BAD_ENV)
+		return -E_BAD_ENV;
+	if((uintptr_t)va>=UTOP||((uintptr_t)va)%PGSIZE!=0)
+		return -E_INVAL;
+	if(!perm&PTE_P||!perm&PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
+		return -E_INVAL;
+	struct PageInfo *p = page_alloc(1);
+	if(!p)
+		return -E_NO_MEM;
+	if(page_insert(e->env_pgdir, p, va, perm)==-E_NO_MEM){
+		page_free(p);
+		return -E_NO_MEM;
+	}
+	return 0;
 }
 
 // Map the page of memory at 'srcva' in srcenvid's address space
@@ -289,6 +320,16 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	case SYS_yield:
 		sys_yield();
 		return 0;
+	case SYS_exofork:
+		return sys_exofork();
+	case SYS_env_set_status:
+		return sys_env_set_status(a1, a2);
+	case SYS_page_alloc:
+		return sys_page_alloc(a1, (void *)a2, a3);
+	case SYS_page_map:
+		return sys_page_map(a1, (void *)a2, a3, (void *)a4, a5);
+	case SYS_page_unmap:
+		return sys_page_unmap(a1, (void *)a2);
 	default:
 		return -E_INVAL;
 	}
