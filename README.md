@@ -5,3 +5,9 @@
 
 ## [Lab 2: Memory Management](docs/Lab2.md)
 ## [Lab 2 练习](docs/Lab2实验报告.md)
+
+## [Lab 3](docs/Lab3.md)
+## [Lab 3 练习](docs/Lab3实验报告.md)
+
+## [Lab 4](docs/Lab4.md)
+## [Lab 4 练习](docs/Lab4实验报告.md)
