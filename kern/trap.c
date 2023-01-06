@@ -72,6 +72,7 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
 	// LAB 3: Your code here.**************************
+	// exception
 	void Trap_DIVIDE();
 	void Trap_DEBUG();
 	void Trap_NMI();
@@ -90,6 +91,25 @@ trap_init(void)
 	void Trap_RES();
 	void Trap_FPERR();
 	void Trap_syscall();
+
+	// external interrupt
+	void Trap_clock();
+	void Trap_33();
+	void Trap_34();
+	void Trap_35();
+	void Trap_36();
+	void Trap_37();
+	void Trap_38();
+	void Trap_39();
+	void Trap_40();
+	void Trap_41();
+	void Trap_42();
+	void Trap_43();
+	void Trap_44();
+	void Trap_45();
+	void Trap_46();
+	void Trap_47();
+
 	// 最后一个参数是权限级别，如果要在用户模式下直接执行中断指令（如int3），相应的中断类型IDT中权限应该为3
 	SETGATE(idt[0], 0, GD_KT, Trap_DIVIDE, 0);
 	SETGATE(idt[1], 0, GD_KT, Trap_DEBUG, 0);
@@ -109,6 +129,24 @@ trap_init(void)
 	SETGATE(idt[15], 0, GD_KT, Trap_RES, 0);
 	SETGATE(idt[16], 0, GD_KT, Trap_FPERR, 0);
 	SETGATE(idt[T_SYSCALL], 0, GD_KT, Trap_syscall, 3);
+
+	SETGATE(idt[IRQ_OFFSET], 0, GD_KT, Trap_clock, 3);
+	SETGATE(idt[IRQ_OFFSET+1], 0, GD_KT, Trap_33, 3);
+	SETGATE(idt[IRQ_OFFSET+2], 0, GD_KT, Trap_34, 3);
+	SETGATE(idt[IRQ_OFFSET+3], 0, GD_KT, Trap_35, 3);
+	SETGATE(idt[IRQ_OFFSET+4], 0, GD_KT, Trap_36, 3);
+	SETGATE(idt[IRQ_OFFSET+5], 0, GD_KT, Trap_37, 3);
+	SETGATE(idt[IRQ_OFFSET+6], 0, GD_KT, Trap_38, 3);
+	SETGATE(idt[IRQ_OFFSET+7], 0, GD_KT, Trap_39, 3);
+	SETGATE(idt[IRQ_OFFSET+8], 0, GD_KT, Trap_40, 3);
+	SETGATE(idt[IRQ_OFFSET+9], 0, GD_KT, Trap_41, 3);
+	SETGATE(idt[IRQ_OFFSET+10], 0, GD_KT, Trap_42, 3);
+	SETGATE(idt[IRQ_OFFSET+11], 0, GD_KT, Trap_43, 3);
+	SETGATE(idt[IRQ_OFFSET+12], 0, GD_KT, Trap_44, 3);
+	SETGATE(idt[IRQ_OFFSET+13], 0, GD_KT, Trap_45, 3);
+	SETGATE(idt[IRQ_OFFSET+14], 0, GD_KT, Trap_46, 3);
+	SETGATE(idt[IRQ_OFFSET+15], 0, GD_KT, Trap_47, 3);
+
 	// Per-CPU setup
 	trap_init_percpu();
 }
@@ -232,6 +270,10 @@ trap_dispatch(struct Trapframe *tf)
 	case T_SYSCALL:
 		tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax,tf->tf_regs.reg_edx,tf->tf_regs.reg_ecx,
 		tf->tf_regs.reg_ebx,tf->tf_regs.reg_edi,tf->tf_regs.reg_esi);
+		return;
+	case IRQ_OFFSET+IRQ_TIMER:
+		lapic_eoi();
+		sched_yield();
 		return;
 
 	default:

@@ -618,3 +618,27 @@ forktree: OK (2.2s)
 Part B score: 50/50
 ```
 
+# 练习13
+> **Exercise 13** 修改 `kern/trapentry.S` 和 `kern/trap.c` 以初始化 IDT 中的适当条目并为 IRQ 0 到 15 提供处理程序。然后修改 `kern/env.c` 中 `env_alloc()` 中的代码以确保用户环境始终在启用中断的情况下运行。            
+> 还要取消注释 `sched_halt()` 中的 `sti` 指令，以便空闲 CPU 取消屏蔽中断。
+
+初始化IDT条目和之前差不多,要注意的是外部中断都不会压入错误代码,所以用`TRAPHANDLER_NOEC`,还要外部中断是在(只在)用户模式下发生,所以在`SETGATE`的最后一个权限参数设为 3.
+
+`env_alloc()`
+```c
+	// Enable interrupts while in user mode.
+	// LAB 4: Your code here.***************
+	e->env_tf.tf_eflags = FL_IF;
+```
+取消注释 `sched_halt()` 中的 `sti`
+
+# 练习14
+> **Exercise 14** 修改内核的 `trap_dispatch()` 函数，以便在发生时钟中断时调用 `sched_yield()` 来查找和运行不同的环境。  
+```c
+case IRQ_OFFSET+IRQ_TIMER:
+	lapic_eoi();   // ??? 没有这个实现不了时钟中断
+	sched_yield();
+	return;
+```
+
+
