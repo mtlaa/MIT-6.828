@@ -28,8 +28,12 @@ set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
 
 	if (_pgfault_handler == 0) {
 		// First time through!
-		// LAB 4: Your code here.
-		panic("set_pgfault_handler not implemented");
+		// LAB 4: Your code here.***********************
+		// panic("set_pgfault_handler not implemented");
+		r = sys_page_alloc(sys_getenvid(), (void *)(UXSTACKTOP - PGSIZE), PTE_U | PTE_W | PTE_P);
+		if(r<0)
+			panic("set_pgfault_handler():%e\n", r);
+		sys_env_set_pgfault_upcall(0, _pgfault_upcall);   // 系统调用，为当前环境设置页面错误处理入口，0可以代表当前环境id
 	}
 
 	// Save handler pointer for assembly to call.

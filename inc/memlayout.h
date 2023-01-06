@@ -6,6 +6,7 @@
 #include <inc/mmu.h>
 #endif /* not __ASSEMBLER__ */
 
+#define JOS_USER 1
 /*
  * This file contains definitions for memory management in our OS,
  * which are relevant to both the kernel and user-mode software.

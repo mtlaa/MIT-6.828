@@ -710,6 +710,9 @@ user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
 	if (user_mem_check(env, va, len, perm | PTE_U) < 0) {
 		cprintf("[%08x] user_mem_check assertion failure for "
 			"va %08x\n", env->env_id, user_mem_check_addr);
+		// cprintf("[%08x] user fault va %08x ip %08x\n",
+		// curenv->env_id, va, curenv->env_tf.tf_eip);
+		// print_trapframe(curenv->env_tf);
 		env_destroy(env);	// may not return
 	}
 }

@@ -343,11 +343,11 @@ page_fault_handler(struct Trapframe *tf)
 	// Call the environment's page fault upcall, if one exists.  Set up a
 	// page fault stack frame on the user exception stack (below
 	// UXSTACKTOP), then branch to curenv->env_pgfault_upcall.
-	//
+
 	// The page fault upcall might cause another page fault, in which case
 	// we branch to the page fault upcall recursively, pushing another
 	// page fault stack frame on top of the user exception stack.
-	//
+
 	// It is convenient for our code which returns from a page fault
 	// (lib/pfentry.S) to have one word of scratch space at the top of the
 	// trap-time stack; it allows us to more easily restore the eip/esp. In
@@ -356,20 +356,48 @@ page_fault_handler(struct Trapframe *tf)
 	// this means we have to leave an extra word between the current top of
 	// the exception stack and the new stack frame because the exception
 	// stack _is_ the trap-time stack.
-	//
+
 	// If there's no page fault upcall, the environment didn't allocate a
 	// page for its exception stack or can't write to it, or the exception
 	// stack overflows, then destroy the environment that caused the fault.
 	// Note that the grade script assumes you will first check for the page
 	// fault upcall and print the "user fault va" message below if there is
 	// none.  The remaining three checks can be combined into a single test.
-	//
+
 	// Hints:
 	//   user_mem_assert() and env_run() are useful here.
 	//   To change what the user environment runs, modify 'curenv->env_tf'
 	//   (the 'tf' variable points at 'curenv->env_tf').
 
-	// LAB 4: Your code here.
+	// LAB 4: Your code here.******************
+	// cprintf("jin le page fault handler\n");
+	// user_mem_assert(curenv, (void *)fault_va, PGSIZE, PTE_W | PTE_U);
+	// cprintf("curenv->env_pgfault_upcall = %08x\n", curenv->env_pgfault_upcall);
+	if (curenv->env_pgfault_upcall )
+	{
+		// cprintf("jin le 1 if\n");
+		uintptr_t uxs_top = UXSTACKTOP - sizeof(struct UTrapframe);
+		if (tf->tf_esp >= UXSTACKTOP - PGSIZE && tf->tf_esp <= UXSTACKTOP - 1)
+		{
+			uxs_top = tf->tf_esp - 4 - sizeof(struct UTrapframe);
+		}
+		// 检查栈是否溢出、异常栈有没有分配、该环境是否可以访问该异常栈
+		user_mem_assert(curenv, (void *)uxs_top, sizeof(struct UTrapframe), PTE_W | PTE_U);
+		// 设置异常栈
+		struct UTrapframe *utf_ptr = (struct UTrapframe *)uxs_top;
+		utf_ptr->utf_esp = tf->tf_esp;    // 栈上保存发生页面错误时的esp和eip，这样就可以在处理完错误后恢复运行
+		utf_ptr->utf_eflags = tf->tf_eflags;
+		utf_ptr->utf_eip = tf->tf_eip;
+		utf_ptr->utf_regs = tf->tf_regs;
+		utf_ptr->utf_err = tf->tf_err;
+		utf_ptr->utf_fault_va = fault_va;
+
+		// 修改环境的运行内容
+		curenv->env_tf.tf_esp = uxs_top;
+		curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;   // 修改环境的eip为页面错误处理程序的入口
+		env_run(curenv);
+		
+	}
 
 	// Destroy the environment that caused the fault.
 	cprintf("[%08x] user fault va %08x ip %08x\n",

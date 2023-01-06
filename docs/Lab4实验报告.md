@@ -223,3 +223,398 @@ sched_yield(void)
 > 4. 每当内核从一个环境切换到另一个环境时，它必须确保保存旧环境的寄存器，以便以后可以正确恢复它们。为什么？这发生在哪里？
 
 在执行一个环境时会产生一些与该环境有关的状态、临时数据会保存在寄存器中，切换环境时保存它们这样恢复时可以恢复到上次执行的状态。发生在`trap()`函数的`curenv->env_tf = *tf;`
+
+# 练习7
+`sys_exofork`
+```c
+static envid_t
+sys_exofork(void)
+{
+	// LAB 4: Your code here.*******************
+	// panic("sys_exofork not implemented");
+	// 使用env_alloc()创建一个新环境，状态设置为ENV_NOT_RUNNABLE，寄存器env_tf由当前环境拷贝而来
+	struct Env *e;
+	int err = env_alloc(&e, curenv->env_id);
+	if(err!=0){
+		return err;
+	}
+	e->env_status = ENV_NOT_RUNNABLE;
+	e->env_tf = curenv->env_tf;
+	e->env_tf.tf_regs.reg_eax = 0;   // 这行代码必不可少！！为什么？？？？？？？？？！！！！！！！
+	// 代码执行到此处是因为当前环境调用了sys_exofork()系统调用，创建的新环境复制了当前环境的env_tf
+	// 新环境和当前环境（父）就有了相同的寄存器状态，就相当于新环境也调用sys_exofork()系统调用（其实并没有）
+	// lab3中我们知道eax寄存器会保存系统调用的返回值，父环境应该返回新环境的id，子环境应该返回0
+	// 所以要把子环境的eax寄存器设为0  【新的进程从sys_exofork()的返回值应该为0】
+	return e->env_id;
+}
+```
+`sys_env_set_status`
+```c
+static int
+sys_env_set_status(envid_t envid, int status)
+{
+	// LAB 4: Your code here.*******************
+	// panic("sys_env_set_status not implemented");
+	if(status!=ENV_RUNNABLE&&status!=ENV_NOT_RUNNABLE)
+		return -E_INVAL;
+	struct Env *e;
+	if(envid2env(envid,&e,1)==-E_BAD_ENV)
+		return -E_BAD_ENV;
+	e->env_status = status;
+	return 0;
+}
+```
+`sys_page_alloc`
+```c
+static int
+sys_page_alloc(envid_t envid, void *va, int perm)
+{
+	// LAB 4: Your code here.***********
+	// panic("sys_page_alloc not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1)==-E_BAD_ENV)
+		return -E_BAD_ENV;
+	if((uintptr_t)va>=UTOP||((uintptr_t)va)%PGSIZE!=0)
+		return -E_INVAL;
+	if((perm&PTE_P)!=PTE_P||(perm&PTE_U)!=PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
+		return -E_INVAL;
+	struct PageInfo *p = page_alloc(1);
+	if(!p)
+		return -E_NO_MEM;
+	if(page_insert(e->env_pgdir, p, va, perm)==-E_NO_MEM){
+		page_free(p);
+		return -E_NO_MEM;
+	}
+	return 0;
+}
+```
+`sys_page_map`
+```c
+static int
+sys_page_map(envid_t srcenvid, void *srcva,
+	     envid_t dstenvid, void *dstva, int perm)
+{
+	// LAB 4: Your code here.************************
+	// panic("sys_page_map not implemented");
+	struct Env *srce, *dste;
+	if(envid2env(srcenvid,&srce,1)==-E_BAD_ENV||envid2env(dstenvid,&dste,1)==-E_BAD_ENV)
+		return -E_BAD_ENV;
+	if((uintptr_t)srcva>=UTOP||(uintptr_t)dstva>=UTOP||
+		((uintptr_t)srcva)%PGSIZE!=0||((uintptr_t)dstva)%PGSIZE!=0)
+		return -E_INVAL;
+	if((perm&PTE_P)!=PTE_P||(perm&PTE_U)!=PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
+		return -E_INVAL;
+	struct PageInfo *p;
+	pte_t *src_pte;
+	p = page_lookup(srce->env_pgdir, srcva, &src_pte);
+	if(!p)
+		return -E_INVAL;
+	if(perm&PTE_W&&((*src_pte)&PTE_W)!=PTE_W)
+		return -E_INVAL;
+	return page_insert(dste->env_pgdir, p, dstva, perm);
+}
+```
+`sys_page_unmap`
+```c
+static int
+sys_page_unmap(envid_t envid, void *va)
+{
+	// Hint: This function is a wrapper around page_remove().
+
+	// LAB 4: Your code here.*******************
+	// panic("sys_page_unmap not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1)<0)
+		return -E_BAD_ENV;
+	if((uintptr_t)va>=UTOP||((uintptr_t)va)%PGSIZE!=0)
+		return -E_INVAL;
+	page_remove(e->env_pgdir, va);
+	return 0;
+}
+```
+运行`make run-dumbfork`
+```bash
+SMP: CPU 0 found 1 CPU(s)
+enabled interrupts: 1 2
+[00000000] new env 00001000
+[00001000] new env 00001001
+0: I am the parent!
+0: I am the child!
+1: I am the parent!
+...
+18: I am the child!
+19: I am the child!
+[00001001] exiting gracefully
+[00001001] free env 00001001
+No runnable environments in the system!
+Welcome to the JOS kernel monitor!
+```
+
+# 练习8
+> **Exercise 8** 实现 `sys_env_set_pgfault_upcall` 系统调用。在查找目标环境的环境 ID 时一定要启用权限检查，因为这是一个“危险”的系统调用。
+```c
+static int
+sys_env_set_pgfault_upcall(envid_t envid, void *func)
+{
+	// LAB 4: Your code here.**************
+	// panic("sys_env_set_pgfault_upcall not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1)<0)
+		return -E_BAD_ENV;
+	e->env_pgfault_upcall = func;
+	return 0;
+}
+```
+
+# 练习9
+> **Exercise 9** 在 `kern/trap.c` 中实现 `page_fault_handler` 中的代码，以将页面错误分派给用户模式处理程序。写入异常堆栈时一定要采取适当的预防措施。 （如果用户环境用完异常堆栈上的空间会怎样？）
+```c
+void
+page_fault_handler(struct Trapframe *tf)
+{
+	uint32_t fault_va;
+
+	// Read processor's CR2 register to find the faulting address
+	fault_va = rcr2();
+
+	// Handle kernel-mode page faults.
+	if((tf->tf_cs&3)==0){
+		// 如果是内核模式的页面错误
+		panic("page fault in kernel-mode.\n");
+	}
+
+	// LAB 4: Your code here.******************
+	if (curenv->env_pgfault_upcall )
+	{
+		uintptr_t uxs_top = UXSTACKTOP - sizeof(struct UTrapframe);
+		if (tf->tf_esp >= UXSTACKTOP - PGSIZE && tf->tf_esp <= UXSTACKTOP - 1)
+		{
+			uxs_top = tf->tf_esp - 4 - sizeof(struct UTrapframe);
+		}
+		// 检查栈是否溢出、异常栈有没有分配、该环境是否可以访问该异常栈
+		user_mem_assert(curenv, (void *)uxs_top, sizeof(struct UTrapframe), PTE_W | PTE_U);
+		// 设置异常栈
+		struct UTrapframe *utf_ptr = (struct UTrapframe *)uxs_top;
+		utf_ptr->utf_esp = tf->tf_esp;    // 栈上保存发生页面错误时的esp和eip，这样就可以在处理完错误后恢复运行
+		utf_ptr->utf_eflags = tf->tf_eflags;
+		utf_ptr->utf_eip = tf->tf_eip;
+		utf_ptr->utf_regs = tf->tf_regs;
+		utf_ptr->utf_err = tf->tf_err;
+		utf_ptr->utf_fault_va = fault_va;
+
+		// 修改环境的运行内容
+		curenv->env_tf.tf_esp = uxs_top;
+		curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;   // 修改环境的eip为页面错误处理程序的入口
+		env_run(curenv);
+		
+	}
+
+	// Destroy the environment that caused the fault.
+	cprintf("[%08x] user fault va %08x ip %08x\n",
+		curenv->env_id, fault_va, tf->tf_eip);
+	print_trapframe(tf);
+	env_destroy(curenv);
+}
+```
+
+# 练习10
+> **Exercise 10** 在 `lib/pfentry.S` 中实现 `_pgfault_upcall` 例程。有趣的部分是返回到导致页面错误的用户代码中的原始点。您将直接返回那里，而无需通过内核返回。困难的部分是同时切换堆栈和重新加载 `EIP`。
+```asm
+	// LAB 4: Your code here.
+	addl $8,%esp
+	// 要把 trap time eip 恢复到原来的正常堆栈（trap time esp所指的地方）中
+	// 这个操作要在恢复通用寄存器之前做，否则会破环寄存器中的内容
+	movl 40(%esp),%eax      // 把 trap time esp 放到 eax寄存器中
+	movl 32(%esp),%ecx      // 把 trap time eip 放到 ecx寄存器中
+	movl %ecx,-4(%eax)      // 把 trap time eip 压入原来的堆栈
+	popal
+	// Restore the trap-time registers.  After you do this, you
+	// can no longer modify any general-purpose registers.
+	// LAB 4: Your code here.
+	addl $4,%esp
+	popfl
+	// Restore eflags from the stack.  After you do this, you can
+	// no longer use arithmetic operations or anything else that
+	// modifies eflags.
+	// LAB 4: Your code here.
+	popl %esp
+	// Switch back to the adjusted trap-time stack.
+	// LAB 4: Your code here.
+	lea -4(%esp),%esp
+	ret
+	// Return to re-execute the instruction that faulted.
+	// LAB 4: Your code here.
+```
+
+# 练习11
+> **Exercise 11** 完成 `lib/pgfault.c` 中的 `set_pgfault_handler()`。
+```c
+void
+set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
+{
+	int r;
+	if (_pgfault_handler == 0) {
+		// First time through!
+		// LAB 4: Your code here.***********************
+		// panic("set_pgfault_handler not implemented");
+		r = sys_page_alloc(sys_getenvid(), (void *)(UXSTACKTOP - PGSIZE), PTE_U | PTE_W | PTE_P);
+		if(r<0)
+			panic("set_pgfault_handler():%e\n", r);
+		sys_env_set_pgfault_upcall(0, _pgfault_upcall);   // 系统调用，为当前环境设置页面错误处理入口，0可以代表当前环境id
+	}
+	// Save handler pointer for assembly to call.
+	_pgfault_handler = handler;
+}
+```
+
+# 练习12
+> **Exercise 12** 在 `lib/fork.c` 中实现 `fork`、`duppage` 和 `pgfault`。 
+
+`fork()`
+```c
+envid_t
+fork(void)
+{
+	// LAB 4: Your code here.****************
+	// panic("fork not implemented");
+	extern void _pgfault_upcall(void);
+	set_pgfault_handler(pgfault);
+	envid_t child_id = sys_exofork();
+	if (child_id == 0)
+	{
+		thisenv = envs + ENVX(sys_getenvid());
+		return 0;
+	}
+	if(child_id<0){
+		panic("sys_exofork() err in fork():%e\n", child_id);
+	}
+	
+	for (size_t i = 0; i < PGNUM(USTACKTOP);i++)
+	{
+		if(uvpd[PDX(i*PGSIZE)] & PTE_P && uvpt[i] & PTE_P){
+			if(duppage(child_id,i)<0)
+				panic("in fork(), duppage() error.\n");
+		}
+	}
+	int r;
+	// 异常堆栈直接分配一个新页面,且不需要设置PTE_COW
+	if((r = sys_page_alloc(child_id, (void *)(UXSTACKTOP - PGSIZE), PTE_U | PTE_W | PTE_P))<0)
+		panic("sys_page_alloc():%e\n", r);
+	// 为子环境设置用户页面错误入口点
+	if((r = sys_env_set_pgfault_upcall(child_id, _pgfault_upcall))<0)
+		panic("sys_env_set_pgfault_upcall():%e\n", r);
+	if((r = sys_env_set_status(child_id, ENV_RUNNABLE))<0)
+		panic("sys_env_set_status():%e\n", r);
+	return child_id;
+}
+```
+在`fork()`中碰到一个很难找的错误,我猜测是因为忽略了`volatile`关键字的作用导致的,如下:
+```c
+// 错误代码 ------------------------------------------
+for (size_t i = 0; i < PGNUM(USTACKTOP);i++)
+{
+	pde_t pde = uvpd[PDX(i * PGSIZE)];
+	pte_t pte = uvpt[i];
+	if ((pde & PTE_P) && (pte & PTE_P))
+	{
+		if (duppage(child_id, i) < 0)
+			panic("in fork(), duppage() error.\n");
+	}
+}
+// ---------------------------------------------
+// 正确代码
+for (size_t i = 0; i < PGNUM(USTACKTOP);i++)
+{
+	pde_t pde = uvpd[PDX(i * PGSIZE)];
+	if ((pde & PTE_P) && (uvpt[i] & PTE_P))
+	{
+		if (duppage(child_id, i) < 0)
+			panic("in fork(), duppage() error.\n");
+	}
+}
+```
+两者的差别很小,但错误的代码会导致某些页面无法进入`duppage`标记为`PTE_COW`. `volatile`关键字指明该变量可能随时会改变,编译器不要优化该变量,每次都从其源地址取得变量值. 我把`uvpt[i]`赋值了,代码可能是拿旧的值进行了判断,所以会出错.
+
+`duppage()`
+```c
+static int
+duppage(envid_t envid, unsigned pn)
+{
+	int r;
+	// cprintf("jin le duppage\n");
+	// LAB 4: Your code here.**************
+	// panic("duppage not implemented");
+	// 1 该页面只读,直接复制映射,不用设PTE_COW
+	// 2 该页面为可写或者COW,父子环境的pte都要标记为PTE_COW
+	uintptr_t addr = pn * PGSIZE;
+	if((uvpt[pn]&PTE_W)||(uvpt[pn]&PTE_COW)){
+		r = sys_page_map(0, (void *)addr, envid, (void *)addr, PTE_P | PTE_U | PTE_COW);
+		if(r<0)
+			panic("duppage():%e\n", r);
+		r = sys_page_map(0, (void *)addr, 0, (void *)addr, PTE_P | PTE_U | PTE_COW);
+		if(r<0)
+			panic("duppage():%e\n", r);
+	}
+	else
+	{
+		r = sys_page_map(0, (void *)addr, envid, (void *)addr, PTE_P | PTE_U);
+		if(r<0)
+			panic("duppage():%e\n", r);
+	}
+	return 0;
+}
+```
+
+`pgfault()`
+```c
+static void
+pgfault(struct UTrapframe *utf)
+{
+	void *addr = (void *) utf->utf_fault_va;
+	uint32_t err = utf->utf_err;
+	int r;
+	uintptr_t thispage = ROUNDDOWN((uint32_t)addr, PGSIZE);
+
+	// Check that the faulting access was (1) a write, and (2) to a
+	// copy-on-write page.  If not, panic.
+	// Hint:
+	//   Use the read-only page table mappings at uvpt
+	//   (see <inc/memlayout.h>).
+	// LAB 4: Your code here.****************
+	if((err&FEC_WR)==0||(uvpt[PGNUM(addr)]&PTE_COW)==0)
+		panic("pgfault():not a write fault or not a COW page\n");
+
+	// Allocate a new page, map it at a temporary location (PFTEMP),
+	// copy the data from the old page to the new page, then move the new
+	// page to the old page's address.
+	// Hint:
+	//   You should make three system calls.
+	// LAB 4: Your code here.************
+	if((r=sys_page_alloc(0,(void*)PFTEMP,PTE_U|PTE_P|PTE_W))<0)
+		panic("pgfault():%e\n", r);
+	memcpy((void *)PFTEMP, (void *)thispage, PGSIZE);
+	if((r=sys_page_unmap(0,(void*)thispage))<0)
+		panic("pgfault():%e\n", r);
+	if((r=sys_page_map(0,(void*)PFTEMP,0,(void*)thispage,PTE_P|PTE_U|PTE_W))<0)
+		panic("pgfault():%e\n", r);
+	if((r=sys_page_unmap(0,(void*)PFTEMP))<0)
+		panic("pgfault():%e\n", r);
+	// panic("pgfault not implemented");
+}
+```
+
+`make grade`结果
+```bash
+faultread: OK (2.2s) 
+faultwrite: OK (2.1s) 
+faultdie: OK (2.4s) 
+faultregs: OK (2.1s) 
+faultalloc: OK (2.2s) 
+faultallocbad: OK (2.1s) 
+faultnostack: OK (2.0s) 
+faultbadhandler: OK (2.0s) 
+faultevilhandler: OK (2.5s) 
+forktree: OK (2.2s) 
+Part B score: 50/50
+```
+
