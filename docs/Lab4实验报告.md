@@ -641,4 +641,123 @@ case IRQ_OFFSET+IRQ_TIMER:
 	return;
 ```
 
+# 练习15
+> **Exercise 15** 在 `kern/syscall.c` 中实现 `sys_ipc_recv` 和 `sys_ipc_try_send`。在实现它们之前阅读关于两者的评论，因为它们必须一起工作。当您在这些例程中调用 `envid2env` 时，您应该将 `checkperm` 标志设置为 `0`，这意味着允许任何环境向任何其他环境发送 IPC 消息，并且内核除了验证目标 `envid` 是否有效外不进行任何特殊权限检查。              
+> 然后在`lib/ipc.c`中实现`ipc_recv`和`ipc_send`函数。 
+`sys_ipc_recv`
+```c
+static int
+sys_ipc_recv(void *dstva)
+{
+	// LAB 4: Your code here.******************
+	// panic("sys_ipc_recv not implemented");
+	if((uintptr_t)dstva<UTOP&&(uintptr_t)dstva%PGSIZE!=0)
+		return -E_INVAL;
+	curenv->env_ipc_dstva = dstva;
+	curenv->env_ipc_recving = 1;
+	int r;
+	if((r=sys_env_set_status(0, ENV_NOT_RUNNABLE))<0)
+		panic("sys_env_set_status():%e\n", r);
+	sys_yield();
+	return 0;  // 实际上不会在这里返回。在`sys_ipc_try_send`中设置eax寄存器进行返回
+}
+```
+`sys_ipc_try_send`
+```c
+static int
+sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
+{
+	// LAB 4: Your code here.************
+	// panic("sys_ipc_try_send not implemented");
+	struct Env *receiver;
+	if(envid2env(envid,&receiver,0)<0)
+		return -E_BAD_ENV;
+	if(!receiver->env_ipc_recving)
+		return -E_IPC_NOT_RECV;
+	receiver->env_ipc_perm = 0;
+	if ((uintptr_t)srcva < UTOP && receiver->env_ipc_dstva)
+	{
+		if((uintptr_t)srcva%PGSIZE!=0)
+			return -E_INVAL;
+		if((perm&PTE_P)!=PTE_P||(perm&PTE_U)!=PTE_U||((perm|PTE_AVAIL)>PTE_SYSCALL))
+			return -E_INVAL;
+		struct PageInfo *p;
+		pte_t *pte_p;
+		p = page_lookup(curenv->env_pgdir, srcva, &pte_p);
+		if(!p)
+			return -E_INVAL;
+		if(perm&PTE_W&&((*pte_p)&PTE_W)!=PTE_W)
+			return -E_INVAL;
+		if (page_insert(receiver->env_pgdir,p,receiver->env_ipc_dstva,perm)<0)
+			return -E_NO_MEM;
+		receiver->env_ipc_perm = perm;
+	}
+	receiver->env_ipc_recving = 0;
+	receiver->env_ipc_from = curenv->env_id;
+	receiver->env_ipc_value = value;
+	receiver->env_status = ENV_RUNNABLE;
+	receiver->env_tf.tf_regs.reg_eax = 0;   // 接收者调用sys_ipc_recv的返回值
+
+	return 0;
+}
+```
+`ipc_recv`
+```c
+int32_t
+ipc_recv(envid_t *from_env_store, void *pg, int *perm_store)
+{
+	// LAB 4: Your code here.*****************
+	// panic("ipc_recv not implemented");
+	int r;
+	if (pg)
+		r = sys_ipc_recv(pg);
+	else
+		r = sys_ipc_recv((void *)UTOP);
+	if(r==0){
+		if(from_env_store)
+			*from_env_store = thisenv->env_ipc_from;
+		if(perm_store)
+			*perm_store = thisenv->env_ipc_perm;
+		return thisenv->env_ipc_value;
+	}
+	if(from_env_store)
+		*from_env_store = 0;
+	if(perm_store)
+		*perm_store = 0;
+	return 0;
+}
+```
+`ipc_send`
+```c
+void
+ipc_send(envid_t to_env, uint32_t val, void *pg, int perm)
+{
+	// LAB 4: Your code here.**************
+	// panic("ipc_send not implemented");
+	if(!pg)
+		pg = (void *)UTOP;
+	int r;
+	while((r=sys_ipc_try_send(to_env, val, pg, perm))<0){
+		if(r!=-E_IPC_NOT_RECV)
+			panic("sys_ipc_try_send():%e\n", r);
+		else
+			sys_yield();  // CPU-friendly,此时没有接收者，直接放弃CPU而不用时钟中断来强行调度（加不加这个分支都行）
+	}
+}
+```
+完成 Lab4，`make grade`：
+```bash
+.....
+spin: OK (2.1s) 
+stresssched: OK (2.4s) 
+sendpage: OK (2.1s) 
+    (Old jos.out.sendpage failure log removed)
+pingpong: OK (2.2s) 
+    (Old jos.out.pingpong failure log removed)
+primes: OK (5.5s) 
+    (Old jos.out.primes failure log removed)
+Part C score: 25/25
+
+Score: 80/80
+```
 
