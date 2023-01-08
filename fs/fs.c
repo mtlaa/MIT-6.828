@@ -44,6 +44,7 @@ free_block(uint32_t blockno)
 	if (blockno == 0)
 		panic("attempt to free zero block");
 	bitmap[blockno/32] |= 1<<(blockno%32);
+	// 注意：JOS是小端存储，这样进行位操作后在内存中位图从低地址到高地址与块号 0 1 2 3 ... 31 32 33 ... 一一对应
 }
 
 // Search the bitmap for a free block and allocate it.  When you
@@ -61,8 +62,17 @@ alloc_block(void)
 	// contains the in-use bits for BLKBITSIZE blocks.  There are
 	// super->s_nblocks blocks in the disk altogether.
 
-	// LAB 5: Your code here.
-	panic("alloc_block not implemented");
+	// LAB 5: Your code here.********************
+	// panic("alloc_block not implemented");
+	uint32_t blockno = 3;
+	for (blockno; blockno < super->s_nblocks;++blockno)
+	{
+		if(block_is_free(blockno)){
+			bitmap[blockno / 32] &= ~(1 << (blockno % 32));
+			flush_block(diskaddr(2));
+			return blockno;
+		}
+	}
 	return -E_NO_DISK;
 }
 

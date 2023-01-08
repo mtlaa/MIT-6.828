@@ -439,7 +439,7 @@ page_fault_handler(struct Trapframe *tf)
 
 		// 修改环境的运行内容
 		curenv->env_tf.tf_esp = uxs_top;
-		curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;   // 修改环境的eip为页面错误处理程序的入口
+		curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;   // 修改环境的eip为页面错误处理程序的统一入口
 		env_run(curenv);
 		
 	}
