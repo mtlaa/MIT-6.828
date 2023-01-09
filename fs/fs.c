@@ -55,6 +55,7 @@ free_block(uint32_t blockno)
 // -E_NO_DISK if we are out of blocks.
 //
 // Hint: use free_block as an example for manipulating the bitmap.
+// 找到一个空闲块，标记为in-use，把位图块刷新写回磁盘，返回这个找到的块号
 int
 alloc_block(void)
 {
@@ -80,12 +81,13 @@ alloc_block(void)
 //
 // Check that all reserved blocks -- 0, 1, and the bitmap blocks themselves --
 // are all marked as in-use.
+// 确保 块0、块1 和所有位图块 被标记为in-use。在JOS中，最大3GB磁盘最多768个块，所以一个位图块绰绰有余
 void
 check_bitmap(void)
 {
 	uint32_t i;
 
-	// Make sure all bitmap blocks are marked in-use
+	// Make sure all bitmap blocks are marked in-use      i * BLKBITSIZE 是位图的总bit个数，代表最大可表示的块数量
 	for (i = 0; i * BLKBITSIZE < super->s_nblocks; i++)
 		assert(!block_is_free(2+i));
 
@@ -141,11 +143,39 @@ fs_init(void)
 //
 // Analogy: This is like pgdir_walk for files.
 // Hint: Don't forget to clear any block you allocate.
+// 查找文件 f 中第 filebno块 的磁盘块号slot，设置 *ppdiskbno 指向那个slot
+// 这里的slot可能是f->f_direct[]中的一个直接块或者是一个indirect block
+// 当alloc==ture，如果必要的话这个函数会分配一个间接块
+// returns：
+// 0 成功 （but note that *ppdiskbno might equal 0）
+// 。。。。。。
+// 与pgdir_walk类似,该函数就是找到指向 文件某个块的块号 的指针
 static int
 file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool alloc)
 {
-       // LAB 5: Your code here.
-       panic("file_block_walk not implemented");
+	// LAB 5: Your code here.
+	// panic("file_block_walk not implemented");
+	if(filebno>=NDIRECT+NINDIRECT)
+		return -E_INVAL;
+	if(filebno<NDIRECT){
+		// 直接块
+		*ppdiskbno = f->f_direct + filebno;
+	}
+	else
+	{
+		// 间接块
+		if(f->f_indirect==0){
+			// 需要分配一个间接块
+			if(!alloc)
+				return -E_NOT_FOUND;
+			int r = alloc_block();
+			if(r<0)
+				return -E_NO_DISK;
+			f->f_indirect = r;
+		}
+		*ppdiskbno = (uint32_t *)diskaddr(f->f_indirect) + (filebno - NDIRECT);	
+	}
+	return 0;
 }
 
 // Set *blk to the address in memory where the filebno'th
@@ -156,30 +186,50 @@ file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool all
 //	-E_INVAL if filebno is out of range.
 //
 // Hint: Use file_block_walk and alloc_block.
+// 设置 *blk 为文件f第filebno块 在内存中的地址
+// 使用 file_block_walk and alloc_block.
 int
 file_get_block(struct File *f, uint32_t filebno, char **blk)
 {
-       // LAB 5: Your code here.
-       panic("file_get_block not implemented");
+	// LAB 5: Your code here.
+	// panic("file_get_block not implemented");
+	if(filebno>=(NDIRECT+NINDIRECT))
+		return -E_INVAL;
+	uint32_t *pdiskbno;
+	int r;
+	if((r=file_block_walk(f,filebno,&pdiskbno,1))<0)
+		panic("in file_get_block() file_block_walk:%e\n", r);
+	if(*pdiskbno==0){
+		// 需要分配一个块
+		r = alloc_block();
+		if(r<0)
+			return -E_NO_DISK;
+		*pdiskbno = r;
+	}
+	*blk = (char*)diskaddr(*pdiskbno);
+	return 0;
 }
 
 // Try to find a file named "name" in dir.  If so, set *file to it.
 //
 // Returns 0 and sets *file on success, < 0 on error.  Errors are:
 //	-E_NOT_FOUND if the file is not found
+// 在文件目录dir中查找文件名为'name'的文件，用file返回
+// 目录文件中存放的是一个个 ‘struct File’
 static int
 dir_lookup(struct File *dir, const char *name, struct File **file)
 {
 	int r;
 	uint32_t i, j, nblock;
-	char *blk;
+	char *blk;  // 目录文件的第 i 块的虚拟地址
 	struct File *f;
 
 	// Search dir for name.
 	// We maintain the invariant that the size of a directory-file
 	// is always a multiple of the file system's block size.
+	// JOS确保目录文件的大小总是文件系统块大小的倍数。
 	assert((dir->f_size % BLKSIZE) == 0);
-	nblock = dir->f_size / BLKSIZE;
+	nblock = dir->f_size / BLKSIZE;   // 目录文件占多少块
 	for (i = 0; i < nblock; i++) {
 		if ((r = file_get_block(dir, i, &blk)) < 0)
 			return r;
@@ -195,6 +245,9 @@ dir_lookup(struct File *dir, const char *name, struct File **file)
 
 // Set *file to point at a free File structure in dir.  The caller is
 // responsible for filling in the File fields.
+// 设置 *file 指向一个在目录文件中的空闲‘struct File’，调用者负责填充结构的字段
+// 按顺序查找目录文件包含的所有‘struct File’，File->name == '\0'说明空闲
+// 必要的时候会为目录文件分配新的块
 static int
 dir_alloc_file(struct File *dir, struct File **file)
 {
@@ -215,6 +268,7 @@ dir_alloc_file(struct File *dir, struct File **file)
 				return 0;
 			}
 	}
+	// 为目录文件分配新的块
 	dir->f_size += BLKSIZE;
 	if ((r = file_get_block(dir, i, &blk)) < 0)
 		return r;
@@ -224,6 +278,7 @@ dir_alloc_file(struct File *dir, struct File **file)
 }
 
 // Skip over slashes.
+// 跳过斜线，用于文件路径查找？
 static const char*
 skip_slash(const char *p)
 {
@@ -238,6 +293,10 @@ skip_slash(const char *p)
 // If we cannot find the file but find the directory
 // it should be in, set *pdir and copy the final path
 // element into lastelem.
+// 从根目录开始，按路径查找文件
+// 如果成功，设置 *pf 指向找到的文件‘struct File’，设置 *pdir 指向该文件所在的目录文件‘struct File’
+// 如果找到了文件应该在的目录但没找到文件，设置 *pdir ，‘并且设置最终路径参数到 lastelem’？？
+// 成功 return 0    otherwise return <0
 static int
 walk_path(const char *path, struct File **pdir, struct File **pf, char *lastelem)
 {
@@ -294,6 +353,7 @@ walk_path(const char *path, struct File **pdir, struct File **pf, char *lastelem
 
 // Create "path".  On success set *pf to point at the file and return 0.
 // On error return < 0.
+// 按文件路径创建文件，成功则设置 *pf 指向该文件并return 0
 int
 file_create(const char *path, struct File **pf)
 {
@@ -316,6 +376,7 @@ file_create(const char *path, struct File **pf)
 
 // Open "path".  On success set *pf to point at the file and return 0.
 // On error return < 0.
+// 按路径搜索文件，成功则设置 *pf 指向该文件，return 0
 int
 file_open(const char *path, struct File **pf)
 {
@@ -325,6 +386,8 @@ file_open(const char *path, struct File **pf)
 // Read count bytes from f into buf, starting from seek position
 // offset.  This meant to mimic the standard pread function.
 // Returns the number of bytes read, < 0 on error.
+// 从文件f的offset字节开始,读取count个字节到buf,返回读取的字节数
+// 这是模拟标准的pread函数
 ssize_t
 file_read(struct File *f, void *buf, size_t count, off_t offset)
 {
@@ -340,7 +403,7 @@ file_read(struct File *f, void *buf, size_t count, off_t offset)
 	for (pos = offset; pos < offset + count; ) {
 		if ((r = file_get_block(f, pos / BLKSIZE, &blk)) < 0)
 			return r;
-		bn = MIN(BLKSIZE - pos % BLKSIZE, offset + count - pos);
+		bn = MIN(BLKSIZE - pos % BLKSIZE, offset + count - pos);   // 本次要从这个块读取的字节数
 		memmove(buf, blk + pos % BLKSIZE, bn);
 		pos += bn;
 		buf += bn;
@@ -354,6 +417,8 @@ file_read(struct File *f, void *buf, size_t count, off_t offset)
 // offset.  This is meant to mimic the standard pwrite function.
 // Extends the file if necessary.
 // Returns the number of bytes written, < 0 on error.
+// 把count个字节从buf写到文件f中offset字节处,如果有必要的话扩充文件f
+// 这是模拟标准的pwrite函数. 成功 return 写入的字节数
 int
 file_write(struct File *f, const void *buf, size_t count, off_t offset)
 {
@@ -380,6 +445,7 @@ file_write(struct File *f, const void *buf, size_t count, off_t offset)
 
 // Remove a block from file f.  If it's not there, just silently succeed.
 // Returns 0 on success, < 0 on error.
+// 删除文件f的一个块
 static int
 file_free_block(struct File *f, uint32_t filebno)
 {
@@ -404,6 +470,7 @@ file_free_block(struct File *f, uint32_t filebno)
 // (Remember to clear the f->f_indirect pointer so you'll know
 // whether it's valid!)
 // Do not change f->f_size.
+// 把文件f的大小缩短为newsize,删除缩短的部分
 static void
 file_truncate_blocks(struct File *f, off_t newsize)
 {
@@ -411,7 +478,7 @@ file_truncate_blocks(struct File *f, off_t newsize)
 	uint32_t bno, old_nblocks, new_nblocks;
 
 	old_nblocks = (f->f_size + BLKSIZE - 1) / BLKSIZE;
-	new_nblocks = (newsize + BLKSIZE - 1) / BLKSIZE;
+	new_nblocks = (newsize + BLKSIZE - 1) / BLKSIZE;      // 这里'+ BLKSIZE - 1'就是不满一块的时候加一块
 	for (bno = new_nblocks; bno < old_nblocks; bno++)
 		if ((r = file_free_block(f, bno)) < 0)
 			cprintf("warning: file_free_block: %e", r);
@@ -423,12 +490,13 @@ file_truncate_blocks(struct File *f, off_t newsize)
 }
 
 // Set the size of file f, truncating or extending as necessary.
+// 设置文件f的大小,缩短或扩充
 int
 file_set_size(struct File *f, off_t newsize)
 {
 	if (f->f_size > newsize)
 		file_truncate_blocks(f, newsize);
-	f->f_size = newsize;
+	f->f_size = newsize;  // 这个对内存的操作会负责对操作的块(页)设置脏位
 	flush_block(f);
 	return 0;
 }
@@ -437,6 +505,8 @@ file_set_size(struct File *f, off_t newsize)
 // Loop over all the blocks in file.
 // Translate the file block number into a disk block number
 // and then check whether that disk block is dirty.  If so, write it out.
+// 把文件f的内容和元数据(struct File)刷新回磁盘
+// 遍历文件f中的所有块,把文件块号转化为磁盘块号,然后检查该块是否脏,脏就写回磁盘
 void
 file_flush(struct File *f)
 {
@@ -456,6 +526,7 @@ file_flush(struct File *f)
 
 
 // Sync the entire file system.  A big hammer.
+// 同步整个文件系统。很耗时
 void
 fs_sync(void)
 {

@@ -82,3 +82,67 @@ alloc_block(void)
 
 # 练习4
 > **Exercise 4** 实现 `file_block_walk` 和 `file_get_block`。 `file_block_walk` 从文件中的块偏移映射到 `struct File` 或间接块中该块的指针，非常类似于 `pgdir_walk` 对页表所做的。 `file_get_block` 更进一步，映射到实际的磁盘块，必要时分配一个新的块。 
+
+`file_block_walk`
+```c
+// 查找文件 f 中第 filebno块 的磁盘块号slot，设置 *ppdiskbno 指向那个slot
+// 这里的slot可能是f->f_direct[]中的一个直接块或者是一个indirect block
+// 当alloc==ture，如果必要的话这个函数会分配一个间接块
+// returns：
+// 0 成功 （but note that *ppdiskbno might equal 0）
+// 。。。。。。
+// 与pgdir_walk类似,该函数就是找到指向 文件某个块的块号 的指针
+static int
+file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool alloc)
+{
+	// LAB 5: Your code here.
+	// panic("file_block_walk not implemented");
+	if(filebno>=NDIRECT+NINDIRECT)
+		return -E_INVAL;
+	if(filebno<NDIRECT){
+		// 直接块
+		*ppdiskbno = f->f_direct + filebno;
+	}
+	else
+	{
+		// 间接块
+		if(f->f_indirect==0){
+			// 需要分配一个间接块
+			if(!alloc)
+				return -E_NOT_FOUND;
+			int r = alloc_block();
+			if(r<0)
+				return -E_NO_DISK;
+			f->f_indirect = r;
+		}
+		*ppdiskbno = (uint32_t *)diskaddr(f->f_indirect) + (filebno - NDIRECT);	
+	}
+	return 0;
+}
+```
+`file_get_block`
+```c
+// 设置 *blk 为文件f第filebno块 在内存中的地址
+// 使用 file_block_walk and alloc_block.
+int
+file_get_block(struct File *f, uint32_t filebno, char **blk)
+{
+	// LAB 5: Your code here.
+	// panic("file_get_block not implemented");
+	if(filebno>=(NDIRECT+NINDIRECT))
+		return -E_INVAL;
+	uint32_t *pdiskbno;
+	int r;
+	if((r=file_block_walk(f,filebno,&pdiskbno,1))<0)
+		panic("in file_get_block() file_block_walk:%e\n", r);
+	if(*pdiskbno==0){
+		// 需要分配一个块
+		r = alloc_block();
+		if(r<0)
+			return -E_NO_DISK;
+		*pdiskbno = r;
+	}
+	*blk = (char*)diskaddr(*pdiskbno);
+	return 0;
+}
+```

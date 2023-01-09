@@ -73,6 +73,7 @@ bc_pgfault(struct UTrapframe *utf)
 // Hint: Use va_is_mapped, va_is_dirty, and ide_write.
 // Hint: Use the PTE_SYSCALL constant when calling sys_page_map.
 // Hint: Don't forget to round addr down.
+// 对于包含虚拟地址addr的块,依据脏位判断是否要把该块刷新回磁盘
 void
 flush_block(void *addr)
 {

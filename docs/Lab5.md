@@ -97,7 +97,7 @@ $ make
 
 注意：在位图中标记为`1`说明块空闲（is free）
 
-> **Exercise 3** 以`free_block`为模型实现`fs/fs.c`中的`alloc_block`，它应该在位图中找到一个空闲的磁盘块，标记为已使用，并返回该块的编号。分配块时，应立即使用 `flush_block` 将更改的位图块(块号 2 )刷新到磁盘，以帮助文件系统保持一致性。             
+> **Exercise 3** 以`free_block`为模型实现`fs/fs.c`中的`alloc_block`，它应该在位图中找到一个空闲的磁盘块，标记为已使用，并返回该块的编号。分配块时，应立即使用 `flush_block` 将更改的位图块刷新到磁盘，以帮助文件系统保持一致性。             
 > 使用 `make grade` 来测试你的代码。您的代码现在应该通过“`alloc_block`”。
 
 ## 文件操作
@@ -105,9 +105,46 @@ $ make
 > **Exercise 4** 实现 `file_block_walk` 和 `file_get_block`。 `file_block_walk` 从文件中的块偏移映射到 `struct File` 或间接块中该块的指针，非常类似于 `pgdir_walk` 对页表所做的。 `file_get_block` 更进一步，映射到实际的磁盘块，必要时分配一个新的块。                
 > 使用 `make grade` 来测试你的代码。您的代码应通过“`file_open`”、“`file_get_block`”、“`file_flush/file_truncated/file rewrite`”和“`testfile`”。
 
-`file_block_walk` 和 `file_get_block` 才是文件系统的主力。例如，`file_read` 和 `file_write` 只不过是 `file_get_block` 顶层的簿记，用于在分散的块和顺序缓冲区之间复制字节。（`file_read` 和 `file_write`是在分散的块和顺序缓冲区之间复制字节）
+`file_block_walk` 和 `file_get_block` 才是文件系统的主力。例如，`file_read` 和 `file_write` 只不过是调用 `file_get_block` 的顶层实现，用于在分散的块和顺序缓冲区之间复制字节。（`file_read` 和 `file_write`是在分散的块和顺序缓冲区buf之间复制字节）
 
 
 ## 文件系统的接口
+既然我们在文件系统环境本身中拥有必要的功能，我们必须让其他希望使用该文件系统的环境可以访问它。由于其他环境无法直接调用文件系统环境中的函数，我们将通过构建在 JOS 的 IPC 机制之上的远程过程调用或 RPC 抽象来公开对文件系统环境的访问。以图形方式，这是对文件系统服务器的调用（例如，读取）的样子:
+```
+      Regular env           FS env
+   +---------------+   +---------------+
+   |      read     |   |   file_read   |
+   |   (lib/fd.c)  |   |   (fs/fs.c)   |
+...|.......|.......|...|.......^.......|...............
+   |       v       |   |       |       | RPC mechanism
+   |  devfile_read |   |  serve_read   |
+   |  (lib/file.c) |   |  (fs/serv.c)  |
+   |       |       |   |       ^       |
+   |       v       |   |       |       |
+   |     fsipc     |   |     serve     |
+   |  (lib/file.c) |   |  (fs/serv.c)  |
+   |       |       |   |       ^       |
+   |       v       |   |       |       |
+   |   ipc_send    |   |   ipc_recv    |
+   |       |       |   |       ^       |
+   +-------|-------+   +-------|-------+
+           |                   |
+           +-------------------+
+```
+虚线下方的所有内容都只是从常规环境到文件系统环境获取read请求的机制。从一开始，`read`（我们提供的）在任何文件描述符上工作，并简单地分派到适当的设备读取函数，在本例中为 `devfile_read`（我们可以有更多的设备类型，如管道）。 `devfile_read` 实现专门针对磁盘文件的读取。这个和 `lib/file.c` 中的其他 `devfile_*` 函数实现了 FS 操作的客户端接口，并且都以大致相同的方式工作，将参数捆绑在请求结构中，调用 `fsipc` 发送 IPC 请求，然后解包并返回结果。 `fsipc` 函数只处理向服务器发送请求和接收回复的常见细节。
+
+文件系统服务器代码可以在 `fs/serv.c` 中找到。它在 `serve` 函数中循环，不断地通过 IPC 接收请求，将该请求分派给适当的处理函数，然后通过 IPC 将结果发回。在读取示例中，`serve` 将分派给 `serve_read`，它将处理读取请求的 IPC 细节，例如解包请求结构，最后调用 `file_read` 以实际执行文件读取。
+
+回想一下，JOS 的 IPC 机制允许环境发送单个 32 位数字，并且可以选择共享一个页面。要从客户端向服务器发送请求，我们使用 32 位数字作为请求类型（文件系统服务器 RPC 已编号，就像系统调用的编号方式一样）并将请求的参数存储在 `union Fsipc` 中通过 IPC 共享的页面传递。在客户端，我们总是在 `fsipcbuf` 共享页面；在服务器端，我们将传入的请求页面映射到 `fsreq` (0x0ffff000)。
+
+服务器还通过 IPC 发回响应。我们使用 32 位数字作为函数的返回码。对于大多数 RPC，这就是它们返回的全部内容。 `FSREQ_READ` 和 `FSREQ_STAT` 也返回数据，它们只是将数据写入客户端发送请求的页面。无需在响应 IPC 中发送此页面，因为客户端首先与文件系统服务器共享了它。此外，在其响应中，`FSREQ_OPEN` 与客户端共享一个新的“`Fd page`”。我们将很快返回文件描述符页面。
+
+> **Exercise 5** 在 `fs/serv.c` 中实现 `serve_read`。                
+> `serve_read` 的繁重工作将由 `fs/fs.c` 中已经实现的 `file_read` 完成（反过来，这只是对 `file_get_block` 的一系列调用）。 `serve_read` 只需要提供文件读取的 RPC 接口即可。查看 `serve_set_size` 中的注释和代码，以大致了解服务器函数的结构。          
+> 使用 `make grade` 来测试你的代码。您的代码应通过“`serve_open/file_stat/file_close`”和“`file_read`”，得分为 `70/150`。
+
+> **Exercise 6** 在 `fs/serv.c` 中实现 `serve_write`，在 `lib/file.c` 中实现 `devfile_write`。        
+> 使用 `make grade` 来测试你的代码。您的代码应该通过“`file_write`”、“`file_read after file_write`”、“`open`”和“`large file`”，得分为 `90/150`。
+
 
 # Spawn 进程
