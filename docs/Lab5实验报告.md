@@ -146,3 +146,95 @@ file_get_block(struct File *f, uint32_t filebno, char **blk)
 	return 0;
 }
 ```
+
+# 练习5
+> **Exercise 5** 在 `fs/serv.c` 中实现 `serve_read`。
+```c
+// 依据fileid查找打开文件 struct OpenFile ，这里面存有 struct File 和 struct Fd 
+// （Fd里存有current seek position，开始读取的位置）
+// 调用file_read 从 o->o_fd->fd_offset 位置开始读取 req->req_n 字节到 ret->ret_buf
+// 更新相应的 seek position (o->o_fd->fd_offset)
+// 返回实际读取的字节数
+int
+serve_read(envid_t envid, union Fsipc *ipc)
+{
+	// union 共用体结构允许不同数据类型存储在同一内存位置，但同一时间只允许存在一种类型的值
+	struct Fsreq_read *req = &ipc->read;
+	struct Fsret_read *ret = &ipc->readRet;        // req和ret指向同一个地址
+
+	if (debug)
+		cprintf("serve_read %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
+
+	// Lab 5: Your code here:**************
+	int r;
+	struct OpenFile *o;
+	if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+	r = file_read(o->o_file, (void *)ret->ret_buf, req->req_n, o->o_fd->fd_offset);
+	if(r>0)
+		o->o_fd->fd_offset += r;      // 更新相应的 seek position (o->o_fd->fd_offset)
+	return r;
+}
+```
+
+# 练习6
+> **Exercise 6** 在 `fs/serv.c` 中实现 `serve_write`，在 `lib/file.c` 中实现 `devfile_write`。  
+
+`serve_write`
+```c
+// 把 req->req_n 个字节从 req->req_buf 写到 req_fileid 所代表的文件中的 current seek position
+// 并且更新相应的 seek position (o->o_fd->fd_offset)
+// 有必要的话扩充文件大小(这已经在file_write中实现了)
+// 返回写入的字节数
+int
+serve_write(envid_t envid, struct Fsreq_write *req)
+{
+	if (debug)
+		cprintf("serve_write %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
+
+	// LAB 5: Your code here.******************
+	// panic("serve_write not implemented");
+	int r;
+	struct OpenFile *o;
+	if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+	r = file_write(o->o_file, req->req_buf, req->req_n, o->o_fd->fd_offset);
+	if(r>0)
+		o->o_fd->fd_offset += r;      // 更新相应的 seek position (o->o_fd->fd_offset)
+	return r;
+}
+```
+`devfile_write`
+```c
+// Write at most 'n' bytes from 'buf' to 'fd' at the current seek position.
+//
+// Returns:
+//	 The number of bytes successfully written.
+//	 < 0 on error.
+static ssize_t
+devfile_write(struct Fd *fd, const void *buf, size_t n)
+{
+	// Make an FSREQ_WRITE request to the file system server.  Be
+	// careful: fsipcbuf.write.req_buf is only so large, but
+	// remember that write is always allowed to write *fewer*
+	// bytes than requested.
+	// 注意:buf的大小(即n)可能远大于 sizeof(fsipcbuf.write.req_buf) _____________________
+	// LAB 5: Your code here******************
+	// panic("devfile_write not implemented");
+	int r;
+	size_t buf_size = sizeof(fsipcbuf.write.req_buf);
+	ssize_t write_count = 0;
+	for (size_t i = 0; i < (n + buf_size - 1) / buf_size; ++i)
+	{
+		size_t thisn = MIN(buf_size, n - i * buf_size);
+		memmove(fsipcbuf.write.req_buf, buf + i * buf_size, thisn);
+		fsipcbuf.write.req_n = thisn;
+		fsipcbuf.write.req_fileid = fd->fd_file.id;
+		if((r=fsipc(FSREQ_WRITE,NULL))<0)
+			return r;
+		write_count += r;
+	}
+	return write_count;
+}
+
+```

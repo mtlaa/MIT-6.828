@@ -178,6 +178,8 @@ try_open:
 
 // Set the size of req->req_fileid to req->req_size bytes, truncating
 // or extending the file as necessary.
+// req代表请求读写的页。
+// 设置 req->req_fileid 这个文件的大小为 req->req_size
 int
 serve_set_size(envid_t envid, struct Fsreq_set_size *req)
 {
@@ -204,32 +206,56 @@ serve_set_size(envid_t envid, struct Fsreq_set_size *req)
 // in ipc->read.req_fileid.  Return the bytes read from the file to
 // the caller in ipc->readRet, then update the seek position.  Returns
 // the number of bytes successfully read, or < 0 on error.
+// 依据fileid查找打开文件 struct OpenFile ，这里面存有 struct File 和 struct Fd 
+// （Fd里存有current seek position，开始读取的位置）
+// 调用file_read 从 o->o_fd->fd_offset 位置开始读取 req->req_n 字节到 ret->ret_buf
+// 更新相应的 seek position (o->o_fd->fd_offset)
+// 返回实际读取的字节数
 int
 serve_read(envid_t envid, union Fsipc *ipc)
 {
+	// union 共用体结构允许不同数据类型存储在同一内存位置，但同一时间只允许存在一种类型的值
 	struct Fsreq_read *req = &ipc->read;
-	struct Fsret_read *ret = &ipc->readRet;
+	struct Fsret_read *ret = &ipc->readRet;        // req和ret指向同一个地址
 
 	if (debug)
 		cprintf("serve_read %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
 
-	// Lab 5: Your code here:
-	return 0;
+	// Lab 5: Your code here:**************
+	int r;
+	struct OpenFile *o;
+	if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+	r = file_read(o->o_file, (void *)ret->ret_buf, req->req_n, o->o_fd->fd_offset);
+	if(r>0)
+		o->o_fd->fd_offset += r;      // 更新相应的 seek position (o->o_fd->fd_offset)
+	return r;
 }
-
 
 // Write req->req_n bytes from req->req_buf to req_fileid, starting at
 // the current seek position, and update the seek position
 // accordingly.  Extend the file if necessary.  Returns the number of
 // bytes written, or < 0 on error.
+// 把 req->req_n 个字节从 req->req_buf 写到 req_fileid 所代表的文件中的 current seek position
+// 并且更新相应的 seek position (o->o_fd->fd_offset)
+// 有必要的话扩充文件大小(这已经在file_write中实现了)
+// 返回写入的字节数
 int
 serve_write(envid_t envid, struct Fsreq_write *req)
 {
 	if (debug)
 		cprintf("serve_write %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
 
-	// LAB 5: Your code here.
-	panic("serve_write not implemented");
+	// LAB 5: Your code here.******************
+	// panic("serve_write not implemented");
+	int r;
+	struct OpenFile *o;
+	if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+	r = file_write(o->o_file, req->req_buf, req->req_n, o->o_fd->fd_offset);
+	if(r>0)
+		o->o_fd->fd_offset += r;      // 更新相应的 seek position (o->o_fd->fd_offset)
+	return r;
 }
 
 // Stat ipc->stat.req_fileid.  Return the file's struct Stat to the
