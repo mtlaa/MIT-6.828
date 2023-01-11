@@ -55,7 +55,15 @@ again:
 			// then close the original 'fd'.
 
 			// LAB 5: Your code here.
-			panic("< redirection not implemented");
+			// panic("< redirection not implemented");
+			if ( (fd = open(t, O_RDONLY) )< 0 ) {
+                fprintf(2,"file %s is no exist\n", t);
+                exit();
+            }
+            if (fd != 0) {
+                dup(fd, 0);
+                close(fd);
+            }
 			break;
 
 		case '>':	// Output redirection
@@ -85,14 +93,18 @@ again:
 				cprintf("fork: %e", r);
 				exit();
 			}
-			if (r == 0) {
+			
+			if (r == 0)
+			{
 				if (p[0] != 0) {
 					dup(p[0], 0);
 					close(p[0]);
 				}
 				close(p[1]);
 				goto again;
-			} else {
+			}
+			else
+			{
 				pipe_child = r;
 				if (p[1] != 1) {
 					dup(p[1], 1);

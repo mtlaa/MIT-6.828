@@ -236,5 +236,84 @@ devfile_write(struct Fd *fd, const void *buf, size_t n)
 	}
 	return write_count;
 }
+```
 
+# 练习7
+> **Exercise 7** `spawn` 依赖于新的系统调用 `sys_env_set_trapframe` 来初始化新创建环境的状态。在 `kern/syscall.c` 中实现 `sys_env_set_trapframe`（不要忘记在 `syscall()` 中调度新的系统调用）。
+```c
+static int
+sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
+{
+	// LAB 5: Your code here.***********************
+	// Remember to check whether the user has supplied us with a good
+	// address!
+	// panic("sys_env_set_trapframe not implemented");
+	struct Env *e;
+	if(envid2env(envid,&e,1)<0)
+		return -E_BAD_ENV;
+	if(tf){
+		e->env_tf = *tf;
+		e->env_tf.tf_eflags &= ~FL_IOPL_MASK;     // IOPL of 0
+		e->env_tf.tf_eflags |= FL_IF;     // interrupts enabled
+		e->env_tf.tf_cs = GD_UT | 3;	  // CPL=3 ,CPL保存在cs寄存器的最低两位
+	}
+	return 0;
+}
+```
+
+# 练习8
+> **Exercise 8** 更改 `lib/fork.c` 中的 `duppage` 以遵循新约定。如果页表条目设置了 `PTE_SHARE` 位，则直接复制映射即可。 （你应该使用 `PTE_SYSCALL`，而不是 `0xfff`来屏蔽掉页表条目中的相关位。`0xfff` 会包含已访问和脏的位。）         
+> 同样，在 `lib/spawn.c` 中实现 `copy_shared_pa​​ges`。它应该遍历当前进程中的所有页表条目（就像 `fork` 所做的那样），将任何设置了 `PTE_SHARE` 位的页映射复制到子进程中。
+
+`duppage`
+```c
+static int
+duppage(envid_t envid, unsigned pn)
+{
+	int r;
+	// cprintf("jin le duppage\n");
+	// LAB 4: Your code here.**************
+	// panic("duppage not implemented");
+	// 0 该页面为 PTE_SHARE,直接复制映射
+	// 1 该页面只读,直接复制映射,不用设PTE_COW
+	// 2 该页面为可写或者COW,父子环境的pte都要标记为PTE_COW
+	uintptr_t addr = pn * PGSIZE;
+	if(uvpt[pn]&PTE_SHARE){
+		r = sys_page_map(0, (void *)addr, envid, (void *)addr, uvpt[pn]&(PTE_SYSCALL|PTE_SHARE));
+		if(r<0)
+			panic("duppage():%e\n", r);
+	}else if((uvpt[pn]&PTE_W)||(uvpt[pn]&PTE_COW)){
+		r = sys_page_map(0, (void *)addr, envid, (void *)addr, PTE_P | PTE_U | PTE_COW);
+		if(r<0)
+			panic("duppage():%e\n", r);
+		r = sys_page_map(0, (void *)addr, 0, (void *)addr, PTE_P | PTE_U | PTE_COW);
+		if(r<0)
+			panic("duppage():%e\n", r);
+	}
+	else
+	{
+		r = sys_page_map(0, (void *)addr, envid, (void *)addr, PTE_P | PTE_U);
+		if(r<0)
+			panic("duppage():%e\n", r);
+	}
+	return 0;
+}
+```
+`copy_shared_pa​​ges`
+```c
+static int
+copy_shared_pages(envid_t child)
+{
+	// LAB 5: Your code here.***************
+	for (uintptr_t addr = 0; addr < UTOP;addr+=PGSIZE)
+	{
+		if((uvpd[PDX(addr)]&PTE_P)&&(uvpt[PGNUM(addr)]&PTE_P)
+			&&(uvpt[PGNUM(addr)]&PTE_U)&&(uvpt[PGNUM(addr)]&PTE_SHARE)){
+			int r = sys_page_map(0, (void *)addr, child, (void *)addr, uvpt[PGNUM(addr)] & (PTE_SYSCALL | PTE_SHARE));
+			if(r<0)
+				return r;
+		}
+	}
+	return 0;
+}
 ```

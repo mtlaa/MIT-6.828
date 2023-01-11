@@ -26,8 +26,12 @@ pgfault(struct UTrapframe *utf)
 	//   Use the read-only page table mappings at uvpt
 	//   (see <inc/memlayout.h>).
 	// LAB 4: Your code here.****************
-	if((err&FEC_WR)==0||(uvpt[PGNUM(addr)]&PTE_COW)==0)
-		panic("pgfault():not a write fault or not a COW page\n");
+	// if((err&FEC_WR)==0||(uvpt[PGNUM(addr)]&PTE_COW)==0)
+	// 	panic("pgfault():not a write fault or not a COW page\n");
+	if((err&FEC_PR)==0)
+		panic("pgfault():not a write fault\n");
+	if((uvpt[PGNUM(addr)]&PTE_COW)==0)
+		panic("pgfault():not a COW page\n");
 
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new
@@ -65,10 +69,15 @@ duppage(envid_t envid, unsigned pn)
 	// cprintf("jin le duppage\n");
 	// LAB 4: Your code here.**************
 	// panic("duppage not implemented");
+	// 0 该页面为 PTE_SHARE,直接复制映射
 	// 1 该页面只读,直接复制映射,不用设PTE_COW
 	// 2 该页面为可写或者COW,父子环境的pte都要标记为PTE_COW
 	uintptr_t addr = pn * PGSIZE;
-	if((uvpt[pn]&PTE_W)||(uvpt[pn]&PTE_COW)){
+	if(uvpt[pn]&PTE_SHARE){
+		r = sys_page_map(0, (void *)addr, envid, (void *)addr, PTE_SYSCALL);
+		if (r < 0)
+			panic("duppage():%e\n", r);
+	}else if((uvpt[pn]&PTE_W)||(uvpt[pn]&PTE_COW)){
 		r = sys_page_map(0, (void *)addr, envid, (void *)addr, PTE_P | PTE_U | PTE_COW);
 		if(r<0)
 			panic("duppage():%e\n", r);

@@ -148,3 +148,49 @@ $ make
 
 
 # Spawn 进程
+我们已经为您提供了 `spawn` 的代码（请参阅 `lib/spawn.c`），它创建一个新环境，从文件系统加载一个程序映像到其中，然后启动运行该程序的子环境。然后父进程继续独立于子进程运行。 `spawn` 函数实际上就像 UNIX 中的一个 `fork`，然后是子进程中的一个直接 `exec`。
+
+我们实现了 `spawn` 而不是 UNIX 风格的 `exec`，因为 `spawn` 更容易以“exokernel 方式”从用户空间实现，而无需内核的特殊帮助。想一想为了在用户空间中实现 `exec` 你必须做什么，并确保你理解为什么它更难。
+> **Exercise 7** `spawn` 依赖于新的系统调用 `sys_env_set_trapframe` 来初始化新创建环境的状态。在 `kern/syscall.c` 中实现 `sys_env_set_trapframe`（不要忘记在 `syscall()` 中调度新的系统调用）。              
+> 通过运行 `kern/init.c` 中的 `user/spawnhello` 程序来测试您的代码，该程序将尝试从文件系统中`spawn` `/hello`。        
+> 使用 `make grade` 来测试你的代码。
+
+##  fork 和 spawn 共享库状态
+UNIX 文件描述符是一个通用概念，还包括管道、控制台 I/O 等。在 JOS 中，这些设备类型中的每一个都有一个对应的 `struct Dev`，带有指向实现读/写等功能的指针。对于该设备类型, `lib/fd.c` 在此之上实现通用的类 UNIX 文件描述符接口。每个 `struct Fd` 都指示其设备类型，而 `lib/fd.c` 中的大多数函数只是将操作分派给适当的 `struct Dev` 中的函数。
+
+`lib/fd.c` 还在每个应用程序环境从 `FDTABLE` 开始的地址空间中维护文件描述符表区域。该区域为应用程序可以同时打开的最多 `MAXFD`（当前为 32）个文件描述符中的每一个保留一页（4KB）的地址空间。在任何给定时间，当且仅当相应的文件描述符正在使用时，才会映射特定的文件描述符表页面。每个文件描述符在从 `FILEDATA` 开始的区域中还有一个可选的“数据页”，设备可以选择使用这些页面。
+
+我们希望在 `fork` 和 `spawn` 之间共享文件描述符状态，但文件描述符状态保存在用户空间内存中。现在，在 `fork` 上，内存将被标记为写时复制，因此状态将被复制而不是共享。 （这意味着环境将无法在它们自己未打开的文件中查找，并且管道将无法跨fork工作。）在`spawn`时，内存将被留下，根本不会被复制。 （实际上，`spawn`的环境从没有打开的文件描述符开始。）
+
+我们将更改 `fork` 以了解某些内存区域由“库操作系统”使用并且应该始终共享。我们不会在某处硬编码区域列表，而是在页表条目中设置一个未使用的位`PTE_SHARE`（就像我们在 `fork` 中对 `PTE_COW` 位所做的那样）。
+
+我们在 `inc/lib.h` 中定义了一个新的 `PTE_SHARE` 位。该位是 Intel 和 AMD 手册中标记为“可供软件使用”的三个 PTE 位之一。我们将建立一个约定，如果一个页表条目设置了这个位，则 PTE 应该在 `fork` 和 `spawn` 中直接从父级复制到子级。请注意，这与将其标记为写时复制不同：如第一段所述，我们希望确保共享页面更新。
+
+> **Exercise 8** 更改 `lib/fork.c` 中的 `duppage` 以遵循新约定。如果页表条目设置了 `PTE_SHARE` 位，则直接复制映射即可。 （你应该使用 `PTE_SYSCALL`，而不是 `0xfff`来屏蔽掉页表条目中的相关位。`0xfff` 会包含已访问和脏的位。）         
+> 同样，在 `lib/spawn.c` 中实现 `copy_shared_pa​​ges`。它应该遍历当前进程中的所有页表条目（就像 `fork` 所做的那样），将任何设置了 `PTE_SHARE` 位的页映射复制到子进程中。
+
+使用 `make run-testpteshare` 检查您的代码是否正常运行。您应该看到“`fork handles PTE_SHARE right`”和“`spawn handles PTE_SHARE right`”的行。
+
+使用 `make run-testfdsharing` 检查文件描述符是否正确共享。您应该看到“`read in child succeeded`”和“`read in parent succeeded`”的行。
+
+# 键盘接口
+为了让 shell 工作，我们需要一种方法来输入它。 QEMU 一直在显示我们写入 CGA 显示器和串行端口的输出，但到目前为止我们只在内核监视器中获取输入。在 QEMU 中，在图形窗口中键入的输入代表从键盘输入到 JOS，而在控制台中输入的输入显示到串行端口上的字符。 `kern/console.c` 已经包含了自实验 1 以来内核监视器使用的键盘和串行驱动程序，但现在您需要将它们附加到系统的其余部分。
+> **Exercise 9** 在你的 `kern/trap.c` 中，调用 `kbd_intr` 来处理陷阱 `IRQ_OFFSET+IRQ_KBD` 和 `serial_intr` 来处理陷阱 `IRQ_OFFSET+IRQ_SERIAL`。
+
+我们在 `lib/console.c` 中为您实现了控制台输入/输出文件类型。 `kbd_intr` 和 `serial_intr` 用最近读取的输入填充缓冲区，而控制台文件类型耗尽缓冲区（控制台文件类型默认用于标准输入/标准输出，除非用户重定向它们）。
+
+通过运行`make run-testkbd` 并键入几行来测试您的代码。系统应该在您完成时将您的台词回显给您。尝试在控制台和图形窗口中键入，如果两者都可用的话。
+
+# Shell
+运行 `make run-icode` 或 `make run-icode-nox`。这将运行您的内核并启动 `user/icode`。 `icode execs init`，它将控制台设置为文件描述符 0 和 1（标准输入和标准输出）。然后它将生成 `sh`，shell。您应该能够运行以下命令：
+```
+	echo hello world | cat
+	cat lorem |cat
+	cat lorem |num
+	cat lorem |num |num |num |num |num
+	lsfd
+```
+请注意，用户库例程 `cprintf` 直接打印到控制台，而不使用文件描述符代码。这非常适合调试，但不适合通过管道传输到其他程序中。要将输出打印到特定的文件描述符（例如，1，标准输出），请使用 `fprintf(1, '...', ...)`。 `printf('...', ...)` 是打印到 FD 1 的快捷方式。有关示例，请参见 `user/lsfd.c`。
+> **Exercise 10** shell 不支持 I/O 重定向。最好运行`sh <script`，而不必像上面那样手动输入脚本中的所有命令。为 `user/sh.c` 添加 I/O 重定向。           
+> 通过在您的 shell 中键入`sh <script`来测试您的实现                
+> 运行 `make run-testshell` 来测试你的 shell。 `testshell` 只是将上述命令（也可在 `fs/testshell.sh`中找到）输入 shell，然后检查输出是否与 `fs/testshell.key` 匹配。

@@ -272,8 +272,21 @@ trap_dispatch(struct Trapframe *tf)
 		tf->tf_regs.reg_ebx,tf->tf_regs.reg_edi,tf->tf_regs.reg_esi);
 		return;
 	case IRQ_OFFSET+IRQ_TIMER:
+		// Handle clock interrupts. Don't forget to acknowledge the
+		// interrupt using lapic_eoi() before calling the scheduler!
+		// LAB 4: Your code here.
 		lapic_eoi();
 		sched_yield();
+		return;
+	// Handle keyboard and serial interrupts.
+	// LAB 5: Your code here.
+	case IRQ_OFFSET+IRQ_KBD:
+		lapic_eoi();     // 外部中断!不要忘了响应!
+		kbd_intr();
+		return;
+	case IRQ_OFFSET+IRQ_SERIAL:
+		lapic_eoi();	// 外部中断!不要忘了响应!
+		serial_intr();
 		return;
 
 	default:
